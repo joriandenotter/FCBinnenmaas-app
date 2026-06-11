@@ -245,14 +245,14 @@ let seizoenen = [
 let nextSeizoenId = 4;
 
 const spelers = [
-  {id:1,naam:"Kevin Stam",    init:"KS",nr:1, pos:"Keeper",      status:"beschikbaar",type:"team",foto:null,blessures:[]},
-  {id:2,naam:"Daan Vermeer",  init:"DV",nr:10,pos:"Aanvaller",    status:"beschikbaar",type:"team",foto:null,blessures:[]},
-  {id:3,naam:"Jordi Peters",  init:"JP",nr:6, pos:"Middenvelder", status:"beschikbaar",type:"team",foto:null,blessures:[]},
-  {id:4,naam:"Thomas Bax",    init:"TB",nr:4, pos:"Verdediger",   status:"geblesseerd",type:"team",foto:null,blessures:[{id:1,naam:"Hamstring",startdatum:"2025-05-01",einddatum:""}]},
-  {id:5,naam:"Arjan Mulder",  init:"AM",nr:9, pos:"Spits",        status:"beschikbaar",type:"team",foto:null,blessures:[]},
-  {id:6,naam:"Mark Visser",   init:"MV",nr:8, pos:"Middenvelder", status:"beschikbaar",type:"team",foto:null,blessures:[]},
-  {id:7,naam:"Frank Jansen",  init:"FJ",nr:7, pos:"Rechtsbuiten", status:"beschikbaar",type:"team",foto:null,blessures:[]},
-  {id:8,naam:"Sander de Boer",init:"SB",nr:11,pos:"Linksbuiten",  status:"beschikbaar",type:"team",foto:null,blessures:[]},
+  {id:1,naam:"Kevin Stam",    init:"KS",nr:1, pos:"Keeper",       altPos:"",            voet:"Rechts",geboortedatum:"1994-05-05",nationaliteit:"Nederlands",lengte:"1,91 m",club:"FC Binnenmaas",status:"beschikbaar",type:"team",foto:null,blessures:[],skillVis:{fysiek:true,mentaal:true,tactisch:true,skills:true}},
+  {id:2,naam:"Daan Vermeer",  init:"DV",nr:10,pos:"Aanvaller",    altPos:"Rechtsbuiten",voet:"Rechts",geboortedatum:"1999-03-14",nationaliteit:"Nederlands",lengte:"1,82 m",club:"FC Binnenmaas",status:"beschikbaar",type:"team",foto:null,blessures:[],skillVis:{fysiek:true,mentaal:true,tactisch:true,skills:true}},
+  {id:3,naam:"Jordi Peters",  init:"JP",nr:6, pos:"Middenvelder", altPos:"Def. mid",    voet:"Rechts",geboortedatum:"1996-07-02",nationaliteit:"Nederlands",lengte:"1,78 m",club:"FC Binnenmaas",status:"beschikbaar",type:"team",foto:null,blessures:[],skillVis:{fysiek:true,mentaal:true,tactisch:true,skills:true}},
+  {id:4,naam:"Thomas Bax",    init:"TB",nr:4, pos:"Verdediger",   altPos:"Linksback",   voet:"Links", geboortedatum:"2000-11-19",nationaliteit:"Nederlands",lengte:"1,88 m",club:"FC Binnenmaas",status:"geblesseerd",type:"team",foto:null,blessures:[{id:1,naam:"Hamstring",startdatum:"2026-05-01",einddatum:""}],skillVis:{fysiek:true,mentaal:true,tactisch:true,skills:true}},
+  {id:5,naam:"Arjan Mulder",  init:"AM",nr:9, pos:"Spits",        altPos:"Aanvaller",   voet:"Rechts",geboortedatum:"1998-02-22",nationaliteit:"Nederlands",lengte:"1,85 m",club:"FC Binnenmaas",status:"beschikbaar",type:"team",foto:null,blessures:[],skillVis:{fysiek:true,mentaal:true,tactisch:true,skills:true}},
+  {id:6,naam:"Mark Visser",   init:"MV",nr:8, pos:"Middenvelder", altPos:"",            voet:"Rechts",geboortedatum:"1997-08-11",nationaliteit:"Nederlands",lengte:"1,80 m",club:"FC Binnenmaas",status:"beschikbaar",type:"team",foto:null,blessures:[],skillVis:{fysiek:true,mentaal:true,tactisch:true,skills:true}},
+  {id:7,naam:"Frank Jansen",  init:"FJ",nr:7, pos:"Rechtsbuiten", altPos:"Aanvaller",   voet:"Rechts",geboortedatum:"2001-04-30",nationaliteit:"Nederlands",lengte:"1,76 m",club:"FC Binnenmaas",status:"beschikbaar",type:"team",foto:null,blessures:[],skillVis:{fysiek:true,mentaal:true,tactisch:true,skills:true}},
+  {id:8,naam:"Sander de Boer",init:"SB",nr:11,pos:"Linksbuiten",  altPos:"",            voet:"Links", geboortedatum:"2002-09-15",nationaliteit:"Nederlands",lengte:"1,74 m",club:"FC Binnenmaas",status:"beschikbaar",type:"team",foto:null,blessures:[],skillVis:{fysiek:true,mentaal:true,tactisch:true,skills:true}},
 ];
 
 const wedstrijden = [
@@ -452,40 +452,150 @@ function renderSpelersLijst(){
 
 function renderSpelerDetail(){
   const sp=spelers.find(s=>s.id===activeSpelerId);
-  return`
-    <button class="back-btn" onclick="activeSpelerId=null;draw()"><i class="ti ti-arrow-left" style="font-size:14px"></i> Terug naar spelers</button>
-    <div class="card">
-      <div class="detail-layout">
-        <div style="display:flex;flex-direction:column;align-items:center;gap:8px">
-          ${sp.foto?`<img class="det-photo" src="${sp.foto}" alt="">`:`<div class="det-ph"><span style="font-size:44px;font-weight:600;color:var(--fcb-groen)">${sp.init}</span></div>`}
-          <button class="btn-outline" style="width:140px;font-size:12px;justify-content:center" onclick="fotoTarget=${sp.id};document.getElementById('spelerfoto').click()">
-            <i class="ti ti-camera" style="font-size:13px;color:var(--fcb-groen)"></i>${sp.foto?'Foto wijzigen':'Foto uploaden'}
-          </button>
-          ${sp.foto?`<button class="btn-danger" style="width:140px;font-size:12px;justify-content:center" onclick="spelers.find(s=>s.id===${sp.id}).foto=null;draw()"><i class="ti ti-trash" style="font-size:12px"></i>Verwijderen</button>`:''}
-          <div style="font-size:11px;color:var(--text-muted);text-align:center;line-height:1.5">Speler kan eigen foto uploaden via de app</div>
+  const actieveBles=sp.blessures.find(b=>!b.einddatum);
+
+  const fotoKolom=`
+    <div style="display:flex;flex-direction:column;align-items:center;gap:8px">
+      ${sp.foto?`<img class="det-photo" src="${sp.foto}" alt="">`:`<div class="det-ph"><span style="font-size:44px;font-weight:600;color:var(--fcb-groen)">${sp.init}</span></div>`}
+      <button class="btn-outline" style="width:140px;font-size:12px;justify-content:center" onclick="fotoTarget=${sp.id};document.getElementById('spelerfoto').click()">
+        <i class="ti ti-camera" style="font-size:13px;color:var(--fcb-groen)"></i>${sp.foto?'Foto wijzigen':'Foto uploaden'}
+      </button>
+      ${sp.foto?`<button class="btn-danger" style="width:140px;font-size:12px;justify-content:center" onclick="spelers.find(s=>s.id===${sp.id}).foto=null;draw()"><i class="ti ti-trash" style="font-size:12px"></i>Verwijderen</button>`:''}
+      <div style="font-size:11px;color:var(--text-muted);text-align:center;line-height:1.5">Speler kan eigen foto uploaden</div>
+    </div>`;
+
+  const tabBar=`<div class="tab-bar" style="margin-bottom:1rem">
+    <div class="tab${spelersTab==='profiel'?' active':''}" onclick="spelersTab='profiel';draw()">Profiel</div>
+    <div class="tab${spelersTab==='blessures'?' active':''}" onclick="spelersTab='blessures';addBlessureForm=false;draw()">Blessures (${sp.blessures.length})${actieveBles?` <span style="width:7px;height:7px;border-radius:50%;background:#dc2626;display:inline-block;vertical-align:middle;margin-left:3px"></span>`:''}</div>
+    <div class="tab${spelersTab==='skills'?' active':''}" onclick="spelersTab='skills';draw()">Skills zichtbaarheid</div>
+  </div>`;
+
+  let tabContent='';
+
+  if(spelersTab==='profiel'){
+    tabContent=`
+      <div class="info-grid" style="margin-bottom:.5rem">
+        <div class="info-box"><div class="info-lbl">Rugnummer</div><div class="info-val">#${sp.nr}</div></div>
+        <div class="info-box"><div class="info-lbl">Geboortedatum</div><div class="info-val">${fmtDate(sp.geboortedatum)||'—'}</div></div>
+        <div class="info-box"><div class="info-lbl">Nationaliteit</div><div class="info-val">${sp.nationaliteit||'—'}</div></div>
+        <div class="info-box"><div class="info-lbl">Lengte</div><div class="info-val">${sp.lengte||'—'}</div></div>
+        <div class="info-box"><div class="info-lbl">Hoofdpositie</div><div class="info-val">${sp.pos}</div></div>
+        <div class="info-box"><div class="info-lbl">Alt. positie</div><div class="info-val">${sp.altPos||'—'}</div></div>
+        <div class="info-box"><div class="info-lbl">Sterkste voet</div><div class="info-val">${sp.voet||'—'}</div></div>
+        <div class="info-box"><div class="info-lbl">Club</div><div class="info-val">${sp.club||'—'}</div></div>
+        <div class="info-box"><div class="info-lbl">Type</div><div class="info-val">${sp.type==='team'?'Teamspeler':'Gastspeler'}</div></div>
+        <div class="info-box"><div class="info-lbl">Status</div><div class="info-val"><span class="${sp.status==='beschikbaar'?'status-ok':'status-bles'}">${sp.status==='beschikbaar'?'Beschikbaar':'Geblesseerd'}</span></div></div>
+      </div>`;
+  }
+
+  if(spelersTab==='blessures'){
+    const blesRows=sp.blessures.length===0&&!addBlessureForm
+      ?`<div style="text-align:center;padding:1.5rem;color:var(--text-muted);font-size:13px"><i class="ti ti-circle-check" style="font-size:22px;display:block;margin:0 auto 6px;color:var(--fcb-groen)"></i>Geen blessures geregistreerd</div>`
+      :sp.blessures.map(b=>`
+        <div class="bles-row${!b.einddatum?' bles-actief':''}">
+          <div>
+            <div style="font-size:13px;font-weight:600">${b.naam}</div>
+            <div style="font-size:11px;color:var(--text-muted);margin-top:2px">${fmtDate(b.startdatum)} → ${b.einddatum?fmtDate(b.einddatum):'<span style="color:#dc2626">Nog niet hersteld</span>'}</div>
+          </div>
+          <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+            <span style="font-size:11px;padding:2px 8px;border-radius:99px;${b.einddatum?'background:var(--fcb-groen-licht);color:#1B5E20':'background:#fef2f2;color:#dc2626'}">${b.einddatum?'Hersteld':'Actief'}</span>
+            ${!b.einddatum?`<button onclick="setEinddatum(${sp.id},${b.id})" style="font-size:11px;background:var(--fcb-groen);color:white;border:none;border-radius:var(--radius);padding:2px 8px;cursor:pointer;font-family:inherit">Hersteld</button>`:''}
+            <button onclick="deleteBlessure(${sp.id},${b.id})" style="background:none;border:none;cursor:pointer;color:var(--text-muted);font-size:14px"><i class="ti ti-trash"></i></button>
+          </div>
+        </div>`).join('');
+    const addForm=addBlessureForm?`
+      <div style="background:#f0fdf4;border:1px dashed var(--fcb-groen);border-radius:var(--radius);padding:12px;margin-top:8px">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+          <div><label class="field-label">Omschrijving</label><input type="text" id="bles-naam" class="field-input" placeholder="bijv. Hamstring"></div>
+          <div><label class="field-label">Startdatum</label><input type="date" id="bles-start" class="field-input"></div>
         </div>
+        <div><label class="field-label">Einddatum <span style="font-size:10px;color:var(--text-muted)">(leeg = nog actief)</span></label>
+          <input type="date" id="bles-eind" class="field-input" style="width:50%"></div>
+        <div style="display:flex;gap:6px;justify-content:flex-end;margin-top:8px">
+          <button class="btn-outline" style="font-size:12px;padding:5px 12px" onclick="addBlessureForm=false;draw()">Annuleren</button>
+          <button class="btn-green" style="font-size:12px;padding:5px 12px" onclick="slaaBlessureOp(${sp.id})"><i class="ti ti-check" style="font-size:12px"></i> Opslaan</button>
+        </div>
+      </div>`:
+      `<button class="btn-outline" style="width:100%;justify-content:center;margin-top:8px;font-size:12px" onclick="addBlessureForm=true;draw()"><i class="ti ti-plus" style="font-size:13px"></i> Blessure toevoegen</button>`;
+    tabContent=blesRows+addForm;
+  }
+
+  if(spelersTab==='skills'){
+    const cats=['fysiek','mentaal','tactisch','skills'];
+    const catLabels={fysiek:'Fysiek',mentaal:'Mentaal',tactisch:'Tactisch',skills:'Skills'};
+    tabContent=`
+      <div style="font-size:12px;color:var(--text-muted);margin-bottom:1rem;display:flex;align-items:center;gap:6px;background:#f9f9f9;padding:8px 12px;border-radius:var(--radius)">
+        <i class="ti ti-eye" style="font-size:14px;color:var(--fcb-groen)"></i>
+        Bepaal welke categorieën zichtbaar zijn voor de speler.
+      </div>
+      ${cats.map(cat=>`
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:#f9f9f9;border-radius:var(--radius);margin-bottom:6px;border:1px solid ${sp.skillVis[cat]?'var(--fcb-groen)':'var(--border)'}">
+          <span style="font-size:13px;font-weight:600">${catLabels[cat]}</span>
+          <button onclick="toggleSkillVis(${sp.id},'${cat}')" style="background:${sp.skillVis[cat]?'var(--fcb-groen)':'#f3f4f6'};color:${sp.skillVis[cat]?'white':'var(--text-muted)'};border:1px solid ${sp.skillVis[cat]?'var(--fcb-groen)':'var(--border)'};border-radius:var(--radius);padding:5px 12px;font-size:12px;cursor:pointer;font-family:inherit;display:inline-flex;align-items:center;gap:5px">
+            <i class="ti ti-${sp.skillVis[cat]?'eye':'eye-off'}" style="font-size:14px"></i>
+            ${sp.skillVis[cat]?'Zichtbaar':'Verborgen'}
+          </button>
+        </div>`).join('')}`;
+  }
+
+  return`
+    <button class="back-btn" onclick="activeSpelerId=null;spelersTab='profiel';draw()"><i class="ti ti-arrow-left" style="font-size:14px"></i> Terug naar spelers</button>
+    <div class="card">
+      <div class="detail-layout" style="margin-bottom:1.25rem">
+        ${fotoKolom}
         <div>
           <div style="display:flex;align-items:center;gap:10px;margin-bottom:1rem">
             <span class="nr-badge" style="width:32px;height:32px;font-size:13px">${sp.nr}</span>
-            <div><div style="font-size:17px;font-weight:700">${sp.naam}</div><span class="pos-pill" style="font-size:11px">${sp.pos}</span></div>
+            <div>
+              <div style="font-size:17px;font-weight:700">${sp.naam}</div>
+              <span class="pos-pill" style="font-size:11px">${sp.pos}</span>
+              <span style="font-size:11px;margin-left:4px;padding:2px 7px;border-radius:99px;background:${sp.type==='team'?'#e0f2fe':'var(--fcb-geel-licht)'};color:${sp.type==='team'?'#0369a1':'#78610a'}">${sp.type==='team'?'Teamspeler':'Gastspeler'}</span>
+            </div>
           </div>
-          <div class="sec-lbl">Profiel</div>
-          <div class="info-grid" style="margin-bottom:1rem">
-            <div class="info-box"><div class="info-lbl">Rugnummer</div><div class="info-val">#${sp.nr}</div></div>
-            <div class="info-box"><div class="info-lbl">Positie</div><div class="info-val">${sp.pos}</div></div>
-            <div class="info-box"><div class="info-lbl">Type</div><div class="info-val">${sp.type==='team'?'Teamspeler':'Gastspeler'}</div></div>
-            <div class="info-box"><div class="info-lbl">Status</div><div class="info-val"><span class="${sp.status==='beschikbaar'?'status-ok':'status-bles'}">${sp.status==='beschikbaar'?'Beschikbaar':'Geblesseerd'}</span></div></div>
-          </div>
-          ${sp.blessures.length>0?`<div class="sec-lbl">Blessures</div>${sp.blessures.map(b=>`
-            <div class="bles-row${!b.einddatum?' bles-actief':''}">
-              <div><div style="font-size:13px;font-weight:600">${b.naam}</div>
-              <div style="font-size:11px;color:var(--text-muted);margin-top:2px">${fmtDate(b.startdatum)} → ${b.einddatum?fmtDate(b.einddatum):'<span style="color:#dc2626">Nog niet hersteld</span>'}</div></div>
-              <span style="font-size:11px;padding:2px 8px;border-radius:99px;${b.einddatum?'background:var(--fcb-groen-licht);color:#1B5E20':'background:#fef2f2;color:#dc2626'}">${b.einddatum?'Hersteld':'Actief'}</span>
-            </div>`).join('')}`:''}
+          ${tabBar}
+          ${tabContent}
         </div>
       </div>
     </div>`;
 }
+
+let spelersTab='profiel';
+let addBlessureForm=false;
+let nextBlesId=10;
+
+function slaaBlessureOp(spelerId){
+  const naam=document.getElementById('bles-naam')?.value.trim();
+  const start=document.getElementById('bles-start')?.value;
+  const eind=document.getElementById('bles-eind')?.value||'';
+  if(!naam||!start) return;
+  const sp=spelers.find(s=>s.id===spelerId);
+  sp.blessures.push({id:nextBlesId++,naam,startdatum:start,einddatum:eind});
+  if(!eind) sp.status='geblesseerd';
+  addBlessureForm=false;
+  draw();
+}
+
+function deleteBlessure(spelerId,blesId){
+  const sp=spelers.find(s=>s.id===spelerId);
+  sp.blessures=sp.blessures.filter(b=>b.id!==blesId);
+  if(!sp.blessures.find(b=>!b.einddatum)) sp.status='beschikbaar';
+  draw();
+}
+
+function setEinddatum(spelerId,blesId){
+  const today=new Date().toISOString().split('T')[0];
+  const sp=spelers.find(s=>s.id===spelerId);
+  sp.blessures.find(b=>b.id===blesId).einddatum=today;
+  if(!sp.blessures.find(b=>!b.einddatum)) sp.status='beschikbaar';
+  draw();
+}
+
+function toggleSkillVis(spelerId,cat){
+  const sp=spelers.find(s=>s.id===spelerId);
+  sp.skillVis[cat]=!sp.skillVis[cat];
+  draw();
+}
+
 
 // ---- WEDSTRIJDEN ----
 function renderWedstrijden(){
@@ -521,9 +631,56 @@ function renderWedstrijden(){
     <div class="card">
       <div class="card-hdr">
         <div class="card-title"><div class="gdot"></div>Alle wedstrijden (${wedstrijden.length})</div>
-        <button class="btn-green" style="font-size:12px;padding:6px 12px"><i class="ti ti-plus" style="font-size:13px"></i> Toevoegen</button>
-      </div>${rows}
+        <button class="btn-green" style="font-size:12px;padding:6px 12px" onclick="toonNieuweWedstrijd=!toonNieuweWedstrijd;draw()"><i class="ti ti-plus" style="font-size:13px"></i> Toevoegen</button>
+      </div>
+      ${toonNieuweWedstrijd?renderNieuweWedstrijd():''}
+      ${rows}
     </div>`;
+}
+
+let toonNieuweWedstrijd=false;
+let nieuweW={datum:'',teg:'',thuis:true,formatie:'4-3-3',type:'Competitie'};
+let wedstrijdCategorieen=['Competitie','Vriendschappelijk','Beker'];
+let nextWedstrijdId=10;
+
+function renderNieuweWedstrijd(){
+  return`<div style="background:#f0fdf4;border:1px solid var(--fcb-groen);border-radius:var(--radius);padding:1rem;margin-bottom:1rem">
+    <div style="font-size:13px;font-weight:600;color:var(--fcb-groen);margin-bottom:.75rem;display:flex;align-items:center;gap:6px"><i class="ti ti-plus" style="font-size:15px"></i> Nieuwe wedstrijd</div>
+    <div class="form-grid" style="margin-bottom:.75rem">
+      <div><label class="field-label">Datum</label><input type="date" id="nw-datum" class="field-input"></div>
+      <div><label class="field-label">Tegenstander</label><input type="text" id="nw-teg" class="field-input" placeholder="bijv. Ajax Amsterdam" list="tegenstanderList">
+        <datalist id="tegenstanderList">${[...new Set(wedstrijden.map(w=>w.teg))].map(t=>`<option value="${t}">`).join('')}</datalist>
+      </div>
+      <div><label class="field-label">Locatie</label>
+        <select id="nw-loc" class="field-input"><option value="thuis">Thuis</option><option value="uit">Uit</option></select>
+      </div>
+      <div><label class="field-label">Type</label>
+        <select id="nw-type" class="field-input">${wedstrijdCategorieen.map(c=>`<option>${c}</option>`).join('')}</select>
+      </div>
+    </div>
+    <div style="margin-bottom:.75rem"><label class="field-label">Formatie</label>
+      <div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:4px">
+        ${Object.keys(FORMATIES).map(f=>`<span onclick="nieuweW.formatie='${f}';draw()" style="padding:4px 10px;border-radius:var(--radius);font-size:12px;cursor:pointer;border:1px solid ${nieuweW.formatie===f?'var(--fcb-groen)':'var(--border)'};background:${nieuweW.formatie===f?'var(--fcb-groen-licht)':'var(--white)'};color:${nieuweW.formatie===f?'#1B5E20':'var(--text-muted)'};font-weight:${nieuweW.formatie===f?'600':'400'}">${f}</span>`).join('')}
+      </div>
+    </div>
+    <div style="display:flex;gap:6px;justify-content:flex-end">
+      <button class="btn-outline" style="font-size:12px;padding:5px 12px" onclick="toonNieuweWedstrijd=false;draw()">Annuleren</button>
+      <button class="btn-green" style="font-size:12px;padding:5px 12px" onclick="slaaNieuweWedstrijdOp()"><i class="ti ti-check" style="font-size:12px"></i> Opslaan</button>
+    </div>
+  </div>`;
+}
+
+function slaaNieuweWedstrijdOp(){
+  const datum=document.getElementById('nw-datum')?.value;
+  const teg=document.getElementById('nw-teg')?.value.trim();
+  const loc=document.getElementById('nw-loc')?.value;
+  const type=document.getElementById('nw-type')?.value;
+  if(!datum||!teg) return;
+  wedstrijden.push({id:nextWedstrijdId++,datum,teg,thuis:loc==='thuis',formatie:nieuweW.formatie,type,score:null,status:'gepland',opstelling:[1,2,3,4,5,6,7,8,9,10,11],bank:[],events:[]});
+  wedstrijden.sort((a,b)=>a.datum.localeCompare(b.datum));
+  toonNieuweWedstrijd=false;
+  nieuweW={datum:'',teg:'',thuis:true,formatie:'4-3-3',type:'Competitie'};
+  showToast('Wedstrijd toegevoegd!');
 }
 
 function renderWedstrijdDetail(){
@@ -621,36 +778,163 @@ function renderWedstrijdDetail(){
     </div>`;
 }
 
-// ---- ONTWIKKELING ----
+// ---- ONTWIKKELING DATA ----
+const CATS=[
+  {key:'fysiek',   label:'Fysiek',   kleur:'#185FA5', subs:[
+    {id:'f1',naam:'Snelheid',             score:72,beelden:[]},
+    {id:'f2',naam:'Uithoudingsvermogen',  score:68,beelden:[]},
+    {id:'f3',naam:'Kracht',               score:61,beelden:[]},
+    {id:'f4',naam:'Wendbaarheid',         score:75,beelden:[]},
+  ]},
+  {key:'mentaal',  label:'Mentaal',  kleur:'#0F6E56', subs:[
+    {id:'m1',naam:'Concentratie',         score:70,beelden:[]},
+    {id:'m2',naam:'Weerbaarheid',         score:65,beelden:[]},
+    {id:'m3',naam:'Leiderschap',          score:80,beelden:[]},
+    {id:'m4',naam:'Motivatie',            score:85,beelden:[]},
+    {id:'m5',naam:'Omgaan met druk',      score:72,beelden:[]},
+  ]},
+  {key:'tactisch', label:'Tactisch', kleur:'#854F0B', subs:[
+    {id:'t1',naam:'Positiespel',          score:74,beelden:[]},
+    {id:'t2',naam:'Druk zetten',          score:68,beelden:[]},
+    {id:'t3',naam:'Omschakelen',          score:71,beelden:[]},
+    {id:'t4',naam:'Ruimte kiezen',        score:66,beelden:[]},
+    {id:'t5',naam:'Diepte',               score:73,beelden:[]},
+    {id:'t6',naam:'Scannen',              score:69,beelden:[]},
+  ]},
+  {key:'skills',   label:'Skills',   kleur:'#993556', subs:[
+    {id:'s1',naam:'Passing',              score:81,beelden:[
+      {id:'b1',datum:'2026-05-10',url:'https://youtube.com/watch?v=demo1',opmerking:'Goede lange pass op 1:24'},
+      {id:'b2',datum:'2026-04-22',url:'https://youtube.com/watch?v=demo2',opmerking:'Verbetering zichtbaar'},
+    ]},
+    {id:'s2',naam:'Schieten',             score:76,beelden:[]},
+    {id:'s3',naam:'Koppen',               score:62,beelden:[]},
+    {id:'s4',naam:'Dribbelen',            score:88,beelden:[]},
+    {id:'s5',naam:'Balcontrole',          score:79,beelden:[]},
+  ]},
+];
+
+const FILTERS=[
+  {key:'all',label:'Alles',        days:null},
+  {key:'w1', label:'Laatste week', days:7},
+  {key:'m1', label:'Laatste maand',days:30},
+  {key:'m3', label:'3 maanden',    days:90},
+  {key:'m6', label:'6 maanden',    days:180},
+];
+
+let ontwikkelingSpelerId=1;
+let expandedSubs={};
+let subFilters={};
+let addBeeldIn=null;
+let beeldIdCounter=100;
+
+function daysAgo(n){const d=new Date();d.setDate(d.getDate()-n);return d.toISOString().split('T')[0];}
+function filterBeelden(beelden,fk){
+  const f=FILTERS.find(x=>x.key===fk)||FILTERS[0];
+  if(!f.days) return beelden;
+  const cutoff=daysAgo(f.days);
+  return beelden.filter(b=>b.datum&&b.datum>=cutoff);
+}
+function fmtDateB(d){if(!d)return'—';const[y,m,day]=d.split('-');return`${day}-${m}-${y}`;}
+function getSub(subId){for(const cat of CATS){const s=cat.subs.find(s=>s.id===subId);if(s)return s;}return null;}
+function getCatForSub(subId){return CATS.find(cat=>cat.subs.some(s=>s.id===subId));}
+
+// ---- ONTWIKKELING RENDER ----
 function renderOntwikkeling(){
-  const cats=[
-    {key:'fysiek',   label:'Fysiek',    kleur:'#185FA5', subs:['Snelheid','Uithoudingsvermogen','Kracht','Wendbaarheid']},
-    {key:'mentaal',  label:'Mentaal',   kleur:'#0F6E56', subs:['Concentratie','Weerbaarheid','Leiderschap','Motivatie','Omgaan met druk']},
-    {key:'tactisch', label:'Tactisch',  kleur:'#854F0B', subs:['Positiespel','Druk zetten','Omschakelen','Ruimte kiezen','Diepte','Scannen']},
-    {key:'skills',   label:'Skills',    kleur:'#993556', subs:['Passing','Schieten','Koppen','Dribbelen','Balcontrole']},
-  ];
-  const sp=spelers[1];
-  const cards=cats.map(cat=>{
-    const scores=cat.subs.map((_,i)=>55+i*4);
-    const avg=Math.round(scores.reduce((a,b)=>a+b)/scores.length);
-    const bars=cat.subs.map((s,i)=>`
-      <div class="skill-row">
-        <span style="font-size:12px;color:var(--text-muted);width:130px;flex-shrink:0">${s}</span>
-        <div class="skill-bar-bg"><div class="skill-bar" style="width:${scores[i]}%;background:${cat.kleur}"></div></div>
-        <span style="font-size:12px;font-weight:600;width:36px;text-align:right">${scores[i]}%</span>
-      </div>`).join('');
+  const sp=spelers.find(s=>s.id===ontwikkelingSpelerId)||spelers[0];
+
+  const spelerSwitch=`
+    <div style="display:flex;align-items:center;gap:8px;background:var(--white);border:1px solid var(--border);border-radius:var(--radius);padding:8px 12px;margin-bottom:1rem;flex-wrap:wrap">
+      <i class="ti ti-user" style="font-size:16px;color:var(--fcb-groen)"></i>
+      <span style="font-size:13px;color:var(--text-muted)">Speler:</span>
+      <select onchange="ontwikkelingSpelerId=parseInt(this.value);draw()" style="border:1px solid var(--border);border-radius:var(--radius);padding:4px 8px;font-size:13px;font-family:inherit;background:var(--white);color:var(--text)">
+        ${spelers.map(s=>`<option value="${s.id}"${s.id===ontwikkelingSpelerId?' selected':''}>${s.naam}</option>`).join('')}
+      </select>
+    </div>`;
+
+  const catCards=CATS.map(cat=>{
+    const avg=Math.round(cat.subs.reduce((a,s)=>a+s.score,0)/cat.subs.length);
+    const subRows=cat.subs.map(sub=>{
+      const isOpen=expandedSubs[sub.id];
+      const activeFilter=subFilters[sub.id]||'all';
+      const filtered=filterBeelden(sub.beelden,activeFilter);
+      const total=sub.beelden.length;
+
+      const beeldPanel=isOpen?`
+        <div style="background:#f9f9f9;border-top:1px solid var(--border);padding:12px 14px">
+          ${total>0?`<div style="display:flex;align-items:center;gap:6px;margin-bottom:10px;flex-wrap:wrap">
+            <span style="font-size:11px;color:var(--text-muted)"><i class="ti ti-clock" style="font-size:12px;vertical-align:-1px"></i> Periode:</span>
+            ${FILTERS.map(f=>`<span onclick="subFilters['${sub.id}']='${f.key}';draw()" style="padding:3px 10px;border-radius:99px;font-size:11px;cursor:pointer;border:1px solid ${activeFilter===f.key?cat.kleur:'var(--border)'};background:${activeFilter===f.key?cat.kleur+'15':'var(--white)'};color:${activeFilter===f.key?cat.kleur:'var(--text-muted)'};font-weight:${activeFilter===f.key?'600':'400'}">${f.label}</span>`).join('')}
+            <span style="font-size:11px;color:var(--text-muted);margin-left:auto">${filtered.length} van ${total}</span>
+          </div>`:''}
+          ${total===0&&addBeeldIn!==sub.id?`<div style="text-align:center;padding:10px 0;font-size:13px;color:var(--text-muted)"><i class="ti ti-video-off" style="font-size:16px;display:block;margin:0 auto 4px"></i>Nog geen beelden</div>`:''}
+          ${filtered.length===0&&total>0&&addBeeldIn!==sub.id?`<div style="text-align:center;padding:10px 0;font-size:13px;color:var(--text-muted)"><i class="ti ti-filter" style="font-size:15px;vertical-align:-2px"></i> Geen beelden in deze periode (wel ${total} buiten filter)</div>`:''}
+          ${filtered.map(b=>`
+            <div style="background:var(--white);border:1px solid var(--border);border-radius:var(--radius);padding:10px 12px;margin-bottom:6px;display:grid;grid-template-columns:100px 1fr auto;gap:8px;align-items:start">
+              <div><div style="font-size:10px;color:var(--text-muted)">Datum</div><div style="font-size:12px;font-weight:600">${fmtDateB(b.datum)}</div></div>
+              <div>
+                <a href="${b.url}" target="_blank" rel="noopener" style="font-size:13px;color:#185FA5;word-break:break-all;text-decoration:none"><i class="ti ti-external-link" style="font-size:12px;vertical-align:-1px;margin-right:3px"></i>${b.url}</a>
+                ${b.opmerking?`<div style="font-size:11px;color:var(--text-muted);margin-top:3px;font-style:italic">"${b.opmerking}"</div>`:''}
+              </div>
+              <button onclick="deletBeeld('${sub.id}','${b.id}')" style="background:none;border:none;cursor:pointer;color:var(--text-muted);padding:2px 4px;font-size:14px" title="Verwijder"><i class="ti ti-trash"></i></button>
+            </div>`).join('')}
+          ${addBeeldIn===sub.id?`
+            <div style="background:var(--white);border:1px dashed var(--border);border-radius:var(--radius);padding:12px;margin-top:4px">
+              <div style="display:grid;grid-template-columns:130px 1fr;gap:8px;margin-bottom:8px">
+                <div><label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:3px">Datum</label>
+                  <input type="date" id="bd-datum-${sub.id}" style="width:100%;border:1px solid var(--border);border-radius:var(--radius);padding:6px 8px;font-size:12px;font-family:inherit"></div>
+                <div><label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:3px">URL <span style="color:#dc2626">*</span></label>
+                  <input type="url" id="bd-url-${sub.id}" placeholder="https://..." style="width:100%;border:1px solid var(--border);border-radius:var(--radius);padding:6px 8px;font-size:12px;font-family:inherit"></div>
+              </div>
+              <div><label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:3px">Opmerking</label>
+                <input type="text" id="bd-opm-${sub.id}" placeholder="bijv. goede actie op 1:24" style="width:100%;border:1px solid var(--border);border-radius:var(--radius);padding:6px 8px;font-size:12px;font-family:inherit"></div>
+              <div style="display:flex;gap:6px;justify-content:flex-end;margin-top:8px">
+                <button onclick="addBeeldIn=null;draw()" class="btn-outline" style="font-size:12px;padding:5px 12px">Annuleren</button>
+                <button onclick="slaBeeldOp('${sub.id}')" class="btn-green" style="font-size:12px;padding:5px 12px"><i class="ti ti-check" style="font-size:12px"></i> Opslaan</button>
+              </div>
+            </div>`:''}
+          <button onclick="addBeeldIn='${sub.id}';draw()" style="background:none;border:none;cursor:pointer;color:#185FA5;font-size:12px;font-family:inherit;padding:4px 0;display:flex;align-items:center;gap:4px;margin-top:4px"><i class="ti ti-plus" style="font-size:13px"></i> Beeld toevoegen</button>
+        </div>`:'' ;
+
+      return`
+        <div style="border:1px solid var(--border);border-radius:var(--radius);margin-bottom:6px;overflow:hidden">
+          <div style="display:flex;align-items:center;gap:10px;padding:9px 12px;cursor:pointer;background:var(--white)" onclick="expandedSubs['${sub.id}']=!expandedSubs['${sub.id}'];draw()">
+            <i class="ti ti-chevron-${isOpen?'down':'right'}" style="font-size:13px;color:var(--text-muted);flex-shrink:0"></i>
+            <span style="font-size:13px;flex:1">${sub.naam}${total>0?` <span style="font-size:10px;background:#e0f2fe;color:#0369a1;padding:1px 6px;border-radius:99px;margin-left:4px">${total}</span>`:''}</span>
+            <div style="flex:1;height:6px;background:#e5e7eb;border-radius:3px;overflow:hidden;max-width:120px" onclick="event.stopPropagation()">
+              <div style="height:100%;border-radius:3px;background:${cat.kleur};width:${sub.score}%"></div>
+            </div>
+            <span style="font-size:12px;font-weight:600;width:34px;text-align:right" onclick="event.stopPropagation()">${sub.score}%</span>
+          </div>
+          ${beeldPanel}
+        </div>`;
+    }).join('');
+
     return`<div class="card">
       <div class="card-hdr">
         <div class="card-title"><div style="width:10px;height:10px;border-radius:50%;background:${cat.kleur};flex-shrink:0"></div>${cat.label}</div>
         <span style="font-size:12px;font-weight:600;padding:3px 10px;border-radius:99px;background:${cat.kleur}20;color:${cat.kleur}">${avg}%</span>
-      </div>${bars}
-    </div>`;}).join('');
-  return`
-    <div style="background:#f9f9f9;border:1px solid var(--border);border-radius:var(--radius);padding:10px 14px;margin-bottom:1rem;font-size:13px;color:var(--text-muted);display:flex;align-items:center;gap:8px">
-      <i class="ti ti-user" style="font-size:16px;color:var(--fcb-groen)"></i>
-      Ontwikkeling van <strong style="color:var(--text)">${sp.naam}</strong> — klik op een speler om te wisselen
-    </div>
-    ${cards}`;
+      </div>${subRows}
+    </div>`;
+  }).join('');
+
+  return spelerSwitch+catCards;
+}
+
+function slaBeeldOp(subId){
+  const url=document.getElementById(`bd-url-${subId}`)?.value.trim();
+  if(!url) return;
+  const datum=document.getElementById(`bd-datum-${subId}`)?.value||'';
+  const opmerking=document.getElementById(`bd-opm-${subId}`)?.value.trim()||'';
+  const sub=getSub(subId);
+  if(sub) sub.beelden.push({id:'b'+(beeldIdCounter++),datum,url,opmerking});
+  addBeeldIn=null;
+  draw();
+}
+
+function deletBeeld(subId,beeldId){
+  const sub=getSub(subId);
+  if(sub) sub.beelden=sub.beelden.filter(b=>b.id!==beeldId);
+  draw();
 }
 
 // ---- ROLLEN ----
