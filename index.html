@@ -2431,14 +2431,18 @@ function startDragPijlNieuwTouch(event, idx){
 document.addEventListener('mousemove', function(event){
   if(!dragPijl) return;
   dragPijl.moved = true;
-  const pt = getSVGPoint(event, dragPijl.svgEl);
+  // Zoek SVG opnieuw op in DOM (voorkomt stale referentie na draw())
+  const liveSvg = dragPijl.oefId==='nieuw'
+    ? document.querySelector('svg[onclick*="handleNieuwVeldKlik"]')
+    : document.querySelector('svg[onclick*="handleVeldKlik"]');
+  if(!liveSvg) return;
+  const pt = getSVGPoint(event, liveSvg);
+  if(!isFinite(pt.x) || !isFinite(pt.y)) return;
   if(dragPijl.oefId==='nieuw'){
     if(nieuwOefening.items && nieuwOefening.items[dragPijl.idx]){
       nieuwOefening.items[dragPijl.idx].cx = pt.x;
       nieuwOefening.items[dragPijl.idx].cy = pt.y;
-      // Lightweight update: alleen SVG herschrijven
-      const svgContent = dragPijl.svgEl;
-      if(svgContent) draw();
+      draw();
     }
   } else {
     const oef = (oefeningen[dragPijl.trainingId]||[]).find(o=>o.id===dragPijl.oefId);
@@ -2461,7 +2465,12 @@ document.addEventListener('mouseup', function(){
 document.addEventListener('touchmove', function(event){
   if(!dragPijl) return;
   event.preventDefault();
-  const pt = getSVGPoint(event, dragPijl.svgEl);
+  const liveSvg = dragPijl.oefId==='nieuw'
+    ? document.querySelector('svg[onclick*="handleNieuwVeldKlik"]')
+    : document.querySelector('svg[onclick*="handleVeldKlik"]');
+  if(!liveSvg) return;
+  const pt = getSVGPoint(event, liveSvg);
+  if(!isFinite(pt.x) || !isFinite(pt.y)) return;
   if(dragPijl.oefId==='nieuw'){
     if(nieuwOefening.items && nieuwOefening.items[dragPijl.idx]){
       nieuwOefening.items[dragPijl.idx].cx = pt.x;
