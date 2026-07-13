@@ -1359,6 +1359,7 @@ let toonNieuweWedstrijd=false;
 let nieuweW={datum:'',teg:'',thuis:true,formatie:'4-3-3',type:'Competitie'};
 let wedstrijdCategorieen=['Competitie','Vriendschappelijk','Beker'];
 let nextWedstrijdId=10;
+let bewerkWedstrijdId=null; // id van de wedstrijd die momenteel bewerkt wordt (null = niet aan het bewerken)
 
 function renderNieuweWedstrijd(){
   return`<div style="background:#f0fdf4;border:1px solid var(--fcb-groen);border-radius:var(--radius);padding:1rem;margin-bottom:1rem">
@@ -1399,6 +1400,54 @@ function slaaNieuweWedstrijdOp(){
   showToast('Wedstrijd toegevoegd!');
 }
 
+// ---- WEDSTRIJD BEWERKEN (datum/tijd/tegenstander/locatie/type van een bestaande wedstrijd) ----
+function openBewerkWedstrijd(wedstrijdId){
+  bewerkWedstrijdId=wedstrijdId;
+  draw();
+}
+function sluitBewerkWedstrijd(){
+  bewerkWedstrijdId=null;
+  draw();
+}
+function renderBewerkWedstrijd(w){
+  return`<div style="background:#f0fdf4;border:1px solid var(--fcb-groen);border-radius:var(--radius);padding:1rem;margin-bottom:1rem">
+    <div style="font-size:13px;font-weight:600;color:var(--fcb-groen);margin-bottom:.75rem;display:flex;align-items:center;gap:6px"><i class="ti ti-pencil" style="font-size:15px"></i> Wedstrijd bewerken</div>
+    <div class="form-grid" style="margin-bottom:.75rem">
+      <div><label class="field-label">Datum</label><input type="date" id="bw-datum" class="field-input" value="${w.datum||''}"></div>
+      <div><label class="field-label">Aanvangstijd</label><input type="time" id="bw-tijd" class="field-input" value="${w.tijd||'14:30'}"></div>
+      <div><label class="field-label">Tegenstander</label><input type="text" id="bw-teg" class="field-input" value="${w.teg||''}" placeholder="bijv. Ajax Amsterdam"></div>
+      <div><label class="field-label">Locatie</label>
+        <select id="bw-loc" class="field-input">
+          <option value="thuis"${w.thuis?' selected':''}>Thuis</option>
+          <option value="uit"${!w.thuis?' selected':''}>Uit</option>
+        </select>
+      </div>
+      <div><label class="field-label">Type</label>
+        <select id="bw-type" class="field-input">${wedstrijdCategorieen.map(c=>`<option${w.type===c?' selected':''}>${c}</option>`).join('')}</select>
+      </div>
+    </div>
+    <div style="display:flex;gap:6px;justify-content:flex-end">
+      <button class="btn-outline" style="font-size:12px;padding:5px 12px" onclick="sluitBewerkWedstrijd()">Annuleren</button>
+      <button class="btn-green" style="font-size:12px;padding:5px 12px" onclick="slaaBewerkWedstrijdOp(${w.id})"><i class="ti ti-check" style="font-size:12px"></i> Opslaan</button>
+    </div>
+  </div>`;
+}
+function slaaBewerkWedstrijdOp(wedstrijdId){
+  const w=wedstrijden.find(x=>x.id===wedstrijdId);
+  if(!w) return;
+  const datum=document.getElementById('bw-datum')?.value;
+  const tijd=document.getElementById('bw-tijd')?.value||'14:30';
+  const teg=document.getElementById('bw-teg')?.value.trim();
+  const loc=document.getElementById('bw-loc')?.value;
+  const type=document.getElementById('bw-type')?.value;
+  if(!datum||!teg) return;
+  w.datum=datum; w.tijd=tijd; w.teg=teg; w.thuis=(loc==='thuis'); w.type=type;
+  wedstrijden.sort((a,b)=>a.datum.localeCompare(b.datum));
+  syncWedstrijdNaarDatabase(w);
+  bewerkWedstrijdId=null;
+  showToast('Wedstrijd bijgewerkt!');
+}
+
 function renderWedstrijdDetail(){
   const w=ensureWedstrijdVelden(wedstrijden.find(x=>x.id===activeWedstrijdId));
   const status=wedstrijdStatus(w);
@@ -1433,7 +1482,7 @@ function renderWedstrijdDetail(){
   // Live-modus: aparte weergave (geen tabs)
   if(live){
     return`
-      <button class="back-btn" onclick="activeWedstrijdId=null;draw()"><i class="ti ti-arrow-left" style="font-size:14px"></i> Terug naar wedstrijden</button>
+      <button class="back-btn" onclick="activeWedstrijdId=null;bewerkWedstrijdId=null;draw()"><i class="ti ti-arrow-left" style="font-size:14px"></i> Terug naar wedstrijden</button>
       <div class="card">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;padding-bottom:.75rem;border-bottom:1px solid var(--border);flex-wrap:wrap;gap:8px">
           <div>
@@ -1452,9 +1501,13 @@ function renderWedstrijdDetail(){
   const startKnop = gepland
     ? `<button class="btn-green" onclick="startWedstrijd(${w.id})"><i class="ti ti-player-play" style="font-size:14px"></i> Wedstrijd starten</button>`
     : '';
+  const bewerkKnop = gepland
+    ? `<button class="btn-outline" onclick="openBewerkWedstrijd(${w.id})"><i class="ti ti-pencil" style="font-size:14px"></i> Bewerken</button>`
+    : '';
 
   return`
-    <button class="back-btn" onclick="activeWedstrijdId=null;draw()"><i class="ti ti-arrow-left" style="font-size:14px"></i> Terug naar wedstrijden</button>
+    <button class="back-btn" onclick="activeWedstrijdId=null;bewerkWedstrijdId=null;draw()"><i class="ti ti-arrow-left" style="font-size:14px"></i> Terug naar wedstrijden</button>
+    ${bewerkWedstrijdId===w.id?renderBewerkWedstrijd(w):''}
     <div class="card">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;padding-bottom:.75rem;border-bottom:1px solid var(--border);flex-wrap:wrap;gap:8px">
         <div>
@@ -1466,7 +1519,7 @@ function renderWedstrijdDetail(){
             ${statusBadge}
           </div>
         </div>
-        ${startKnop}
+        <div style="display:flex;gap:8px">${bewerkKnop}${startKnop}</div>
       </div>
       <div class="tab-bar">
         ${tabs.map(t=>`<div class="tab${wedstrijdTab===t[0]?' active':''}" onclick="wedstrijdTab='${t[0]}';draw()">${t[1]}</div>`).join('')}
