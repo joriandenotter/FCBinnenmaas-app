@@ -1365,6 +1365,7 @@ function renderNieuweWedstrijd(){
     <div style="font-size:13px;font-weight:600;color:var(--fcb-groen);margin-bottom:.75rem;display:flex;align-items:center;gap:6px"><i class="ti ti-plus" style="font-size:15px"></i> Nieuwe wedstrijd</div>
     <div class="form-grid" style="margin-bottom:.75rem">
       <div><label class="field-label">Datum</label><input type="date" id="nw-datum" class="field-input"></div>
+      <div><label class="field-label">Aanvangstijd</label><input type="time" id="nw-tijd" class="field-input" value="14:30"></div>
       <div><label class="field-label">Tegenstander</label><input type="text" id="nw-teg" class="field-input" placeholder="bijv. Ajax Amsterdam" list="tegenstanderList">
         <datalist id="tegenstanderList">${[...new Set(wedstrijden.map(w=>w.teg))].map(t=>`<option value="${t}">`).join('')}</datalist>
       </div>
@@ -1373,11 +1374,6 @@ function renderNieuweWedstrijd(){
       </div>
       <div><label class="field-label">Type</label>
         <select id="nw-type" class="field-input">${wedstrijdCategorieen.map(c=>`<option>${c}</option>`).join('')}</select>
-      </div>
-    </div>
-    <div style="margin-bottom:.75rem"><label class="field-label">Formatie</label>
-      <div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:4px">
-        ${Object.keys(FORMATIES).map(f=>`<span onclick="nieuweW.formatie='${f}';draw()" style="padding:4px 10px;border-radius:var(--radius);font-size:12px;cursor:pointer;border:1px solid ${nieuweW.formatie===f?'var(--fcb-groen)':'var(--border)'};background:${nieuweW.formatie===f?'var(--fcb-groen-licht)':'var(--white)'};color:${nieuweW.formatie===f?'#1B5E20':'var(--text-muted)'};font-weight:${nieuweW.formatie===f?'600':'400'}">${f}</span>`).join('')}
       </div>
     </div>
     <div style="display:flex;gap:6px;justify-content:flex-end">
@@ -1389,11 +1385,12 @@ function renderNieuweWedstrijd(){
 
 function slaaNieuweWedstrijdOp(){
   const datum=document.getElementById('nw-datum')?.value;
+  const tijd=document.getElementById('nw-tijd')?.value||'14:30';
   const teg=document.getElementById('nw-teg')?.value.trim();
   const loc=document.getElementById('nw-loc')?.value;
   const type=document.getElementById('nw-type')?.value;
   if(!datum||!teg) return;
-  const nieuw={id:nextWedstrijdId++,datum,teg,thuis:loc==='thuis',formatie:nieuweW.formatie,type,score:null,status:'gepland',opstelling:[1,3,5,6,10,11,13,16,17,19,21],bank:[],events:[]};
+  const nieuw={id:nextWedstrijdId++,datum,tijd,teg,thuis:loc==='thuis',formatie:nieuweW.formatie,type,score:null,status:'gepland',opstelling:[1,3,5,6,10,11,13,16,17,19,21],bank:[],events:[]};
   wedstrijden.push(nieuw);
   wedstrijden.sort((a,b)=>a.datum.localeCompare(b.datum));
   syncWedstrijdNaarDatabase(nieuw);
