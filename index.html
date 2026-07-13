@@ -374,7 +374,15 @@ body{font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
 </div>
 
 </div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script>
+// ============================================================
+// SUPABASE KOPPELING
+// ============================================================
+const SUPABASE_URL = 'https://boomtqiwutgvdugpfuyw.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_Rjvoaplvn-59Meroeoh8Qg_sUXKcedK';
+const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
 // ============================================================
 // DATA
 // ============================================================
@@ -387,7 +395,66 @@ let seizoenen = [
 ];
 let nextSeizoenId = 4;
 
-const spelers = [
+// ============================================================
+// SUPABASE: laden en synchroniseren van spelers
+// ============================================================
+let spelersGeladen = false;
+
+function spelerNaarRij(sp){
+  // Zet een speler-object (app-vorm) om naar een database-rij (kolomvorm)
+  return {
+    id: sp.id, naam: sp.naam, init: sp.init, nr: String(sp.nr ?? ''),
+    pos: sp.pos, alt_pos: sp.altPos, voet: sp.voet, geboortedatum: sp.geboortedatum,
+    nationaliteit: sp.nationaliteit, lengte: sp.lengte, club: sp.club,
+    status: sp.status, doelpunten: sp.doelpunten ?? 0, assists: sp.assists ?? 0,
+    type: sp.type, foto: sp.foto, blessures: sp.blessures ?? [],
+    skill_vis: sp.skillVis ?? {fysiek:true,mentaal:true,tactisch:true,skills:true}
+  };
+}
+
+function rijNaarSpeler(r){
+  // Zet een database-rij om naar een speler-object (app-vorm)
+  return {
+    id:r.id, naam:r.naam, init:r.init, nr:r.nr, pos:r.pos, altPos:r.alt_pos,
+    voet:r.voet, geboortedatum:r.geboortedatum, nationaliteit:r.nationaliteit,
+    lengte:r.lengte, club:r.club, status:r.status, doelpunten:r.doelpunten,
+    assists:r.assists, type:r.type, foto:r.foto, blessures:r.blessures||[],
+    skillVis:r.skill_vis||{fysiek:true,mentaal:true,tactisch:true,skills:true}
+  };
+}
+
+async function laadSpelersUitDatabase(){
+  const { data, error } = await db.from('spelers').select('*').order('id');
+  if(error){ console.error('Fout bij laden spelers:', error); showToast('Kon spelers niet laden'); return false; }
+  const dbWasLeeg = !data || data.length===0;
+  if(!dbWasLeeg){
+    spelers = data.map(rijNaarSpeler);
+    nextSpelerId = Math.max(...spelers.map(s=>s.id), 0) + 1;
+  }
+  spelersGeladen = true;
+  draw();
+  return dbWasLeeg;
+}
+
+async function syncSpelerNaarDatabase(sp){
+  const { error } = await db.from('spelers').upsert(spelerNaarRij(sp));
+  if(error){ console.error('Fout bij opslaan speler:', error); showToast('Opslaan mislukt, controleer verbinding'); }
+}
+
+async function verwijderSpelerUitDatabase(id){
+  const { error } = await db.from('spelers').delete().eq('id', id);
+  if(error){ console.error('Fout bij verwijderen speler:', error); showToast('Verwijderen mislukt'); }
+}
+
+async function eenmaligeSeedNaarDatabase(){
+  // Vult de database eenmalig met de bestaande vaste lijst (wordt alleen aangeroepen als de tabel leeg is)
+  const rijen = spelers.map(spelerNaarRij);
+  const { error } = await db.from('spelers').insert(rijen);
+  if(error) console.error('Fout bij eenmalig vullen:', error);
+  else showToast('Spelers eenmalig naar database gezet');
+}
+
+let spelers = [
   // Keepers
   {id:1, naam:"Thijs Botterhuis",  init:"TB",nr:1, pos:"Keeper",      altPos:"",    voet:"Rechts",geboortedatum:"",nationaliteit:"Nederlands",lengte:"",club:"FC Binnenmaas 1",status:"beschikbaar",doelpunten:0,assists:0,type:"team",foto:null,blessures:[],skillVis:{fysiek:true,mentaal:true,tactisch:true,skills:true}},
   {id:2, naam:"Milan Schouten",    init:"MS",nr:21,pos:"Keeper",      altPos:"",    voet:"Rechts",geboortedatum:"",nationaliteit:"Nederlands",lengte:"",club:"FC Binnenmaas 1",status:"beschikbaar",doelpunten:0,assists:0,type:"team",foto:null,blessures:[],skillVis:{fysiek:true,mentaal:true,tactisch:true,skills:true}},
@@ -954,12 +1021,14 @@ function slaaNieuweSpelerOp(){
   const nr=document.getElementById('ns-nr')?.value||'';
   const voet=document.getElementById('ns-voet')?.value||'Rechts';
   if(!naam) return;
-  spelers.push({
+  const nieuw = {
     id:nextSpelerId++,naam,init:naam.split(' ').map(w=>w[0]).join('').toUpperCase().slice(0,2),
     nr,pos,altPos:'',voet,geboortedatum:'',nationaliteit:'Nederlands',lengte:'',
     club:'FC Binnenmaas 1',status:'beschikbaar',type:nieuweSpeler.type,
     foto:null,blessures:[],skillVis:{fysiek:true,mentaal:true,tactisch:true,skills:true}
-  });
+  };
+  spelers.push(nieuw);
+  syncSpelerNaarDatabase(nieuw);
   toonNieuweSpeler=false;
   nieuweSpeler={naam:'',nr:'',pos:'',altPos:'',voet:'Rechts',type:'team'};
   showToast(`${naam} toegevoegd!`);
@@ -1075,7 +1144,7 @@ function renderSpelerDetail(){
       <button class="btn-outline" style="width:140px;font-size:12px;justify-content:center" onclick="fotoTarget=${sp.id};document.getElementById('spelerfoto').click()">
         <i class="ti ti-camera" style="font-size:13px;color:var(--fcb-groen)"></i>${sp.foto?'Foto wijzigen':'Foto uploaden'}
       </button>
-      ${sp.foto?`<button class="btn-danger" style="width:140px;font-size:12px;justify-content:center" onclick="spelers.find(s=>s.id===${sp.id}).foto=null;draw()"><i class="ti ti-trash" style="font-size:12px"></i>Verwijderen</button>`:''}
+      ${sp.foto?`<button class="btn-danger" style="width:140px;font-size:12px;justify-content:center" onclick="const s=spelers.find(x=>x.id===${sp.id});s.foto=null;syncSpelerNaarDatabase(s);draw()"><i class="ti ti-trash" style="font-size:12px"></i>Verwijderen</button>`:''}
       <div style="font-size:11px;color:var(--text-muted);text-align:center;line-height:1.5">Speler kan eigen foto uploaden</div>
     </div>`;
 
@@ -1187,6 +1256,7 @@ function slaaBlessureOp(spelerId){
   sp.blessures.push({id:nextBlesId++,naam,startdatum:start,einddatum:eind});
   if(!eind) sp.status='geblesseerd';
   addBlessureForm=false;
+  syncSpelerNaarDatabase(sp);
   draw();
 }
 
@@ -1194,6 +1264,7 @@ function deleteBlessure(spelerId,blesId){
   const sp=spelers.find(s=>s.id===spelerId);
   sp.blessures=sp.blessures.filter(b=>b.id!==blesId);
   if(!sp.blessures.find(b=>!b.einddatum)) sp.status='beschikbaar';
+  syncSpelerNaarDatabase(sp);
   draw();
 }
 
@@ -1202,12 +1273,14 @@ function setEinddatum(spelerId,blesId){
   const sp=spelers.find(s=>s.id===spelerId);
   sp.blessures.find(b=>b.id===blesId).einddatum=today;
   if(!sp.blessures.find(b=>!b.einddatum)) sp.status='beschikbaar';
+  syncSpelerNaarDatabase(sp);
   draw();
 }
 
 function toggleSkillVis(spelerId,cat){
   const sp=spelers.find(s=>s.id===spelerId);
   sp.skillVis[cat]=!sp.skillVis[cat];
+  syncSpelerNaarDatabase(sp);
   draw();
 }
 
@@ -1862,8 +1935,8 @@ function registreerDoelpunt(wedstrijdId, kant, spelerId, assistId){
     const sp=spelers.find(s=>s.id===Number(spelerId));
     const assist=assistId&&assistId!=='geen'?spelers.find(s=>s.id===Number(assistId)):null;
     w.events.push({type:'doelpunt', min, speler:sp?sp.naam:'Onbekend', assist:assist?assist.naam:'geen'});
-    if(sp) sp.doelpunten=(sp.doelpunten||0)+1;
-    if(assist) assist.assists=(assist.assists||0)+1;
+    if(sp){ sp.doelpunten=(sp.doelpunten||0)+1; syncSpelerNaarDatabase(sp); }
+    if(assist){ assist.assists=(assist.assists||0)+1; syncSpelerNaarDatabase(assist); }
   } else {
     w.score.t++;
     w.events.push({type:'doelpunt', min, speler:w.teg, assist:'geen', tegen:true});
@@ -2310,7 +2383,13 @@ function uploadSpelerFoto(e){
   const file=e.target.files[0];
   if(!file||!fotoTarget) return;
   const r=new FileReader();
-  r.onload=ev=>{spelers.find(s=>s.id===fotoTarget).foto=ev.target.result;fotoTarget=null;draw();};
+  r.onload=ev=>{
+    const sp=spelers.find(s=>s.id===fotoTarget);
+    sp.foto=ev.target.result;
+    fotoTarget=null;
+    syncSpelerNaarDatabase(sp);
+    draw();
+  };
   r.readAsDataURL(file);
   e.target.value='';
 }
@@ -4025,7 +4104,13 @@ function verwijderItemVeld(trainingId, oefId, itemIdx){
 }
 
 // ---- START ----
-draw();
+draw(); // teken direct met de ingebouwde standaardlijst, zodat het scherm niet leeg is
+laadSpelersUitDatabase().then(dbWasLeeg=>{
+  // Als de tabel nog leeg was (nieuw Supabase-project), vullen we hem eenmalig
+  if(dbWasLeeg){
+    eenmaligeSeedNaarDatabase().then(laadSpelersUitDatabase);
+  }
+});
 </script>
 </body>
 </html>
