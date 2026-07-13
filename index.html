@@ -706,10 +706,11 @@ function syncSpeelminuten(w){
 // ============================================================
 // RENDER
 // ============================================================
-function setPage(p){
+function setPage(p, behoudSelectie){
   // "meer" op mobiel = toon een menu met de secties die niet in de tabbar passen
   if(p==='meer'){ toonMeerMenu(); return; }
-  page=p;activeSpelerId=null;activeWedstrijdId=null;
+  page=p;
+  if(!behoudSelectie){ activeSpelerId=null; activeWedstrijdId=null; }
   // Actieve status op sidebar EN tabbar via data-page
   document.querySelectorAll('.sb-item[data-page]').forEach(b=>{
     b.classList.toggle('active', b.dataset.page===p);
@@ -915,7 +916,7 @@ function renderDashboard(){
   const v=gs.filter(w=>w.score&&w.score.e<w.score.t).length;
   const df=gs.reduce((s,w)=>s+(w.score?w.score.e-w.score.t:0),0);
   const rows=wedstrijden.slice(0,3).map(w=>`
-    <div class="match-row" onclick="activeWedstrijdId=${w.id};setPage('wedstrijden')">
+    <div class="match-row" onclick="activeWedstrijdId=${w.id};setPage('wedstrijden',true)">
       <div style="font-size:12px;color:var(--text-muted)">${fmtDate(w.datum)}</div>
       <div>
         <div style="font-size:14px;font-weight:600;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
