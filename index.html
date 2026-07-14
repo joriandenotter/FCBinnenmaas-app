@@ -387,6 +387,7 @@ const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 // DATA
 // ============================================================
 let clubNaam = 'FC Binnenmaas 1';
+let clubLogo = null; // wordt gevuld vanuit Supabase bij het opstarten
 let profiel = { naam:'Jorian den Otter', rol:'Hoofdtrainer', foto:null };
 let seizoenen = [
   {id:1,naam:'2024/2025',actief:false},
@@ -401,27 +402,58 @@ let nextSeizoenId = 4;
 let spelersGeladen = false;
 
 function spelerNaarRij(sp){
-  // Zet een speler-object (app-vorm) om naar een database-rij (kolomvorm)
+  // Zet een speler-object (app-vorm) om naar een database-rij (kolomvorm).
+  // Let op: dit bevat alleen de VASTE gegevens. Seizoensgebonden velden (nr, pos, status,
+  // doelpunten, assists, blessures) gaan apart via syncSpelerSeizoenNaarDatabase.
   return {
-    id: sp.id, naam: sp.naam, init: sp.init, nr: String(sp.nr ?? ''),
-    pos: sp.pos, alt_pos: sp.altPos, voet: sp.voet, geboortedatum: sp.geboortedatum,
+    id: sp.id, naam: sp.naam, init: sp.init, voet: sp.voet, geboortedatum: sp.geboortedatum,
     nationaliteit: sp.nationaliteit, lengte: sp.lengte, club: sp.club,
-    status: sp.status, doelpunten: sp.doelpunten ?? 0, assists: sp.assists ?? 0,
-    type: sp.type, foto: sp.foto, blessures: sp.blessures ?? [],
+    type: sp.type, foto: sp.foto,
     skill_vis: sp.skillVis ?? {fysiek:true,mentaal:true,tactisch:true,skills:true}
   };
 }
 
-function rijNaarSpeler(r){
-  // Zet een database-rij om naar een speler-object (app-vorm)
+function spelerSeizoenNaarRij(sp){
+  // Zet de seizoensgebonden velden van een speler-object om naar een speler_seizoenen-rij
   return {
-    id:r.id, naam:r.naam, init:r.init, nr:r.nr, pos:r.pos, altPos:r.alt_pos,
-    voet:r.voet, geboortedatum:r.geboortedatum, nationaliteit:r.nationaliteit,
-    lengte:r.lengte, club:r.club, status:r.status, doelpunten:r.doelpunten,
-    assists:r.assists, type:r.type, foto:r.foto, blessures:r.blessures||[],
+    id: sp.speelSeizoenKoppelingId ?? undefined, // undefined = database mag zelf een id genereren (nieuwe koppeling)
+    speler_id: sp.id, seizoen_id: sp.speelSeizoenId,
+    nr: String(sp.nr ?? ''), pos: sp.pos, alt_pos: sp.altPos,
+    status: sp.status, doelpunten: sp.doelpunten ?? 0, assists: sp.assists ?? 0,
+    blessures: sp.blessures ?? [], speelminuten: sp.speelminuten ?? 0
+  };
+}
+
+function rijNaarSpeler(r){
+  // Zet een database-rij om naar een speler-object (app-vorm).
+  // Let op: nr/pos/status/doelpunten/assists/blessures komen NIET meer uit deze rij zelf,
+  // die zijn seizoensgebonden en worden apart uit 'speler_seizoenen' gehaald en toegevoegd (zie verrijkMetSeizoenData).
+  return {
+    id:r.id, naam:r.naam, init:r.init, voet:r.voet, geboortedatum:r.geboortedatum,
+    nationaliteit:r.nationaliteit, lengte:r.lengte, club:r.club, type:r.type, foto:r.foto,
     skillVis:r.skill_vis||{fysiek:true,mentaal:true,tactisch:true,skills:true}
   };
 }
+
+// Vult een speler-object aan met de seizoensgebonden gegevens (nr, pos, status, doelpunten, etc.)
+// voor een specifiek seizoen. Als de speler niet meedeed dat seizoen, komen er lege/standaardwaarden.
+function verrijkMetSeizoenData(sp, seizoenId){
+  const koppeling = spelerSeizoenen.find(ss=>ss.speler_id===sp.id && ss.seizoen_id===seizoenId);
+  sp.speelSeizoenId = seizoenId; // onthoud voor welk seizoen deze verrijkte data geldt
+  sp.speelSeizoenKoppelingId = koppeling?koppeling.id:null; // id van de speler_seizoenen-rij zelf (nodig om op te slaan)
+  sp.nr = koppeling?.nr ?? '';
+  sp.pos = koppeling?.pos ?? '';
+  sp.altPos = koppeling?.alt_pos ?? '';
+  sp.status = koppeling?.status ?? 'beschikbaar';
+  sp.doelpunten = koppeling?.doelpunten ?? 0;
+  sp.assists = koppeling?.assists ?? 0;
+  sp.blessures = koppeling?.blessures ?? [];
+  sp.speelminuten = koppeling?.speelminuten ?? 0;
+  sp.doetMeeDitSeizoen = !!koppeling;
+  return sp;
+}
+
+let spelerSeizoenen = []; // ruwe koppelingen speler<->seizoen, zoals opgehaald uit de database
 
 async function laadSpelersUitDatabase(){
   const { data, error } = await db.from('spelers').select('*').order('id');
@@ -430,6 +462,7 @@ async function laadSpelersUitDatabase(){
   if(!dbWasLeeg){
     spelers = data.map(rijNaarSpeler);
     nextSpelerId = Math.max(...spelers.map(s=>s.id), 0) + 1;
+    await laadSpelerSeizoenenUitDatabase();
   }
   spelersGeladen = true;
   draw();
@@ -441,6 +474,50 @@ async function syncSpelerNaarDatabase(sp){
   if(error){ console.error('Fout bij opslaan speler:', error.message||error, error); showToast('Opslaan mislukt: '+(error.message||'controleer verbinding')); }
 }
 
+async function laadSpelerSeizoenenUitDatabase(){
+  const { data, error } = await db.from('speler_seizoenen').select('*');
+  if(error){ console.error('Fout bij laden speler_seizoenen:', error.message||error, error); return; }
+  spelerSeizoenen = data||[];
+  const seizoenId = activeSeizoenId();
+  spelers.forEach(sp=>verrijkMetSeizoenData(sp, seizoenId));
+}
+
+// Slaat de seizoensgebonden gegevens van een speler op (nr, pos, status, doelpunten, assists, blessures, speelminuten)
+async function syncSpelerSeizoenNaarDatabase(sp){
+  const rij = spelerSeizoenNaarRij(sp);
+  const { data, error } = await db.from('speler_seizoenen').upsert(rij, {onConflict:'speler_id,seizoen_id'}).select().maybeSingle();
+  if(error){ console.error('Fout bij opslaan speler-seizoen:', error.message||error, error); showToast('Opslaan mislukt: '+(error.message||'controleer verbinding')); return; }
+  if(data) sp.speelSeizoenKoppelingId = data.id; // onthoud het echte id, ook als dit een nieuwe koppeling was
+}
+
+// ============================================================
+// SUPABASE: laden en synchroniseren van seizoenen
+// ============================================================
+function seizoenNaarRij(s){
+  return { id:s.id, naam:s.naam, start_datum:s.startDatum||null, eind_datum:s.eindDatum||null, actief:s.actief };
+}
+function rijNaarSeizoen(r){
+  return { id:r.id, naam:r.naam, startDatum:r.start_datum, eindDatum:r.eind_datum, actief:r.actief };
+}
+async function laadSeizoenenUitDatabase(){
+  const { data, error } = await db.from('seizoenen').select('*').order('id');
+  if(error){ console.error('Fout bij laden seizoenen:', error.message||error, error); showToast('Kon seizoenen niet laden: '+(error.message||'onbekende fout')); return; }
+  if(data && data.length){
+    seizoenen = data.map(rijNaarSeizoen);
+    nextSeizoenId = Math.max(...seizoenen.map(s=>s.id), 0) + 1;
+  }
+  const label=document.getElementById('seizoenLabel');
+  if(label && activeSeizoen()) label.textContent = activeSeizoen().naam;
+}
+async function syncSeizoenNaarDatabase(s){
+  const { error } = await db.from('seizoenen').upsert(seizoenNaarRij(s));
+  if(error){ console.error('Fout bij opslaan seizoen:', error.message||error, error); showToast('Opslaan seizoen mislukt: '+(error.message||'controleer verbinding')); }
+}
+async function verwijderSeizoenUitDatabase(id){
+  const { error } = await db.from('seizoenen').delete().eq('id', id);
+  if(error){ console.error('Fout bij verwijderen seizoen:', error.message||error, error); showToast('Verwijderen mislukt'); }
+}
+
 async function verwijderSpelerUitDatabase(id){
   const { error } = await db.from('spelers').delete().eq('id', id);
   if(error){ console.error('Fout bij verwijderen speler:', error); showToast('Verwijderen mislukt'); }
@@ -450,8 +527,19 @@ async function eenmaligeSeedNaarDatabase(){
   // Vult de database eenmalig met de bestaande vaste lijst (wordt alleen aangeroepen als de tabel leeg is)
   const rijen = spelers.map(spelerNaarRij);
   const { error } = await db.from('spelers').insert(rijen);
-  if(error) console.error('Fout bij eenmalig vullen:', error);
-  else showToast('Spelers eenmalig naar database gezet');
+  if(error){ console.error('Fout bij eenmalig vullen:', error); return; }
+  // Ook meteen een seizoen-koppeling aanmaken voor het actieve seizoen, met de seed-waarden
+  const seizoenId = activeSeizoenId();
+  if(seizoenId){
+    const ssRijen = spelers.map(sp=>({
+      speler_id:sp.id, seizoen_id:seizoenId, nr:String(sp.nr??''), pos:sp.pos||'',
+      alt_pos:sp.altPos||'', status:sp.status||'beschikbaar',
+      doelpunten:sp.doelpunten??0, assists:sp.assists??0, blessures:sp.blessures??[]
+    }));
+    const { error: ssError } = await db.from('speler_seizoenen').insert(ssRijen);
+    if(ssError) console.error('Fout bij eenmalig vullen speler_seizoenen:', ssError);
+  }
+  showToast('Spelers eenmalig naar database gezet');
 }
 
 // ============================================================
@@ -464,7 +552,7 @@ function wedstrijdNaarRij(w){
     opstelling: w.opstelling||[], bank: w.bank||[], events: w.events||[],
     selectie: w.selectie||{}, opstelling_pos: w.opstellingPos||{},
     wissel_bank: w.wisselBank||[], wissels: w.wissels||[],
-    speelminuten: w.speelminuten||{}
+    speelminuten: w.speelminuten||{}, seizoen_id: w.seizoenId
   };
 }
 
@@ -475,16 +563,21 @@ function rijNaarWedstrijd(r){
     opstelling:r.opstelling||[], bank:r.bank||[], events:r.events||[],
     selectie:r.selectie||{}, opstellingPos:r.opstelling_pos||{},
     wisselBank:r.wissel_bank||[], wissels:r.wissels||[],
-    speelminuten:r.speelminuten||{}
+    speelminuten:r.speelminuten||{}, seizoenId:r.seizoen_id
   };
 }
 
-async function laadWedstrijdenUitDatabase(){
-  const { data, error } = await db.from('wedstrijden').select('*').order('id');
+async function laadWedstrijdenVoorSeizoen(seizoenId){
+  let query = db.from('wedstrijden').select('*').order('id');
+  if(seizoenId) query = query.eq('seizoen_id', seizoenId);
+  const { data, error } = await query;
   if(error){ console.error('Fout bij laden wedstrijden:', error.message||error, error); showToast('Kon wedstrijden niet laden: '+(error.message||'onbekende fout')); return; }
   wedstrijden = (data||[]).map(rijNaarWedstrijd);
   nextWedstrijdId = Math.max(...wedstrijden.map(w=>w.id), 0) + 1;
   draw();
+}
+async function laadWedstrijdenUitDatabase(){
+  await laadWedstrijdenVoorSeizoen(activeSeizoenId());
 }
 
 // Verzamelt wedstrijd-ids die gesynchroniseerd moeten worden, en stuurt ze gebundeld weg.
@@ -508,6 +601,42 @@ function syncWedstrijdNaarDatabase(w){
 async function verwijderWedstrijdUitDatabase(id){
   const { error } = await db.from('wedstrijden').delete().eq('id', id);
   if(error){ console.error('Fout bij verwijderen wedstrijd:', error); showToast('Verwijderen wedstrijd mislukt'); }
+}
+
+// ============================================================
+// SUPABASE: laden en synchroniseren van clubinstellingen (naam + logo)
+// ============================================================
+async function laadInstellingenUitDatabase(){
+  const { data, error } = await db.from('instellingen').select('*').eq('id',1).maybeSingle();
+  if(error){ console.error('Fout bij laden instellingen:', error.message||error, error); return; }
+  if(data){
+    if(data.club_naam) clubNaam = data.club_naam;
+    if(data.club_logo) clubLogo = data.club_logo;
+  }
+  const clubNaamEl=document.getElementById('clubNaamDisplay');
+  if(clubNaamEl) clubNaamEl.textContent=clubNaam;
+  draw();
+  toonLogoInUI();
+}
+
+async function syncInstellingenNaarDatabase(){
+  const { error } = await db.from('instellingen').update({ club_naam: clubNaam, club_logo: clubLogo }).eq('id',1);
+  if(error){ console.error('Fout bij opslaan instellingen:', error.message||error, error); showToast('Opslaan mislukt: '+(error.message||'controleer verbinding')); }
+}
+
+// Zet het logo (indien aanwezig) in de UI-elementen; wordt aangeroepen na laden en na wijzigen
+function toonLogoInUI(){
+  const limg=document.getElementById('limg'), lph=document.getElementById('lph'), rmBtn=document.getElementById('rmLogoBtn');
+  if(!limg) return;
+  if(clubLogo){
+    limg.src=clubLogo; limg.style.display='block';
+    if(lph) lph.style.display='none';
+    if(rmBtn) rmBtn.style.display='inline-flex';
+  } else {
+    limg.style.display='none';
+    if(lph) lph.style.display='flex';
+    if(rmBtn) rmBtn.style.display='none';
+  }
 }
 
 let spelers = [
@@ -581,6 +710,20 @@ let beheerOpen = false;
 let beheerTab = 'info';
 let fotoTarget = null;
 let toast = null;
+// Als dit gezet is (en afwijkt van het echte actieve seizoen), bekijkt de trainer een gearchiveerd
+// seizoen: alles wordt dan read-only getoond. Null = gewoon het actieve seizoen (normale, bewerkbare modus).
+let bekijkSeizoenId = null;
+function isArchiefModus(){ return bekijkSeizoenId!==null && bekijkSeizoenId!==activeSeizoenId(); }
+// Roep dit aan het begin van elke functie die data wijzigt. Geeft true terug (en toont een melding)
+// als we in read-only archiefmodus zitten, zodat de aanroepende functie meteen kan stoppen.
+function blokkeerInArchief(){
+  if(isArchiefModus()){
+    showToast('Dit seizoen is alleen-lezen (archief)');
+    draw();
+    return true;
+  }
+  return false;
+}
 
 // Wedstrijd klok
 let klokPhase = 'voor';
@@ -621,6 +764,9 @@ function achternaam(naam){
 }
 function scClass(w){if(!w.score)return'';return w.score.e>w.score.t?'win':w.score.e<w.score.t?'loss':'draw';}
 function activeSeizoen(){return seizoenen.find(s=>s.actief);}
+function activeSeizoenId(){return activeSeizoen()?.id ?? null;}
+// Spelers die daadwerkelijk gekoppeld zijn aan het momenteel bekeken seizoen (dus zichtbaar horen te zijn in lijsten/selecties)
+function spelersInActiefSeizoen(){ return spelers.filter(s=>s.doetMeeDitSeizoen); }
 function showToast(msg){toast=msg;draw();setTimeout(()=>{toast=null;draw();},3000);}
 
 // Klok
@@ -672,6 +818,7 @@ function ensureWedstrijdVelden(w){
 }
 function getSelectieStatus(w, spelerId){ return w.selectie[spelerId] || 'aanwezig'; }
 function setSelectieStatus(w, spelerId, status){
+  if(blokkeerInArchief()) return;
   ensureWedstrijdVelden(w);
   if(status==='aanwezig') delete w.selectie[spelerId];
   else w.selectie[spelerId] = status;
@@ -754,6 +901,14 @@ function draw(){
   const el=document.getElementById('pageContent');
   let html='';
   if(toast) html+=`<div class="toast"><i class="ti ti-circle-check" style="font-size:16px"></i>${toast}</div>`;
+  if(isArchiefModus()){
+    const bekekenSeizoen=seizoenen.find(s=>s.id===bekijkSeizoenId);
+    html+=`<div style="background:#fef3c7;border:1px solid #d97706;color:#92400e;border-radius:var(--radius);padding:10px 14px;margin-bottom:1rem;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <i class="ti ti-lock" style="font-size:16px"></i>
+      <span style="font-size:13px;font-weight:600;flex:1">Je bekijkt seizoen ${bekekenSeizoen?.naam||''} (alleen-lezen archief)</span>
+      <button class="btn-outline" style="font-size:12px;padding:4px 10px;border-color:#d97706;color:#92400e" onclick="verlaatArchiefModus()">Terug naar actief seizoen</button>
+    </div>`;
+  }
   if(beheerOpen){html+=renderBeheer();}
   else if(page==='dashboard') html+=renderDashboard();
   else if(page==='spelers')   html+=activeSpelerId?renderSpelerDetail():renderSpelers();
@@ -763,6 +918,7 @@ function draw(){
   else if(page==='trainingen') html+=renderTrainingen();
   if(typeof renderOpstellingKiezer==='function' && opstellingKiezer) html+=renderOpstellingKiezer();
   if(typeof renderLiveActie==='function' && liveActie) html+=renderLiveActie();
+  if(spelerskeuzeSeizoenId) html+=renderSpelerskeuzeVoorSeizoen();
   el.innerHTML=html;
   // Fix stroke-dasharray via DOM na innerHTML (innerHTML parse respecteert geen SVG namespace attrs)
   document.querySelectorAll('g[data-streep="1"] path[stroke="white"]').forEach(p => {
@@ -929,8 +1085,8 @@ function renderDashboard(){
       </div>
       <i class="ti ti-chevron-right" style="color:var(--text-muted)"></i>
     </div>`).join('');
-  // Top 5 statistieken (alleen spelers, type team)
-  const teamSpelers = spelers.filter(s=>s.type==='team');
+  // Top 5 statistieken (alleen spelers, type team, die dit seizoen meedoen)
+  const teamSpelers = spelersInActiefSeizoen().filter(s=>s.type==='team');
   const doelpuntenTop5 = [...teamSpelers]
     .sort((a,b)=>(b.doelpunten||0)-(a.doelpunten||0) || a.naam.localeCompare(b.naam))
     .slice(0,5).map(sp=>({sp, waarde:(sp.doelpunten||0)}));
@@ -971,8 +1127,9 @@ const STAF_FUNCTIES=['Hoofdtrainer','Assistent trainer','Keeperstrainer','Leider
 function renderSpelers(){
   const isList=spelersView==='lijst';
   const content=isList?renderSpelersLijst():renderSpelersTegel();
-  const selectie=spelers.filter(s=>s.type!=='staf');
-  const staf=spelers.filter(s=>s.type==='staf');
+  const spelersDitSeizoen=spelersInActiefSeizoen();
+  const selectie=spelersDitSeizoen.filter(s=>s.type!=='staf');
+  const staf=spelersDitSeizoen.filter(s=>s.type==='staf');
   return`<div class="card flush">
     <div class="card-hdr" style="justify-content:flex-end">
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
@@ -1047,6 +1204,7 @@ function renderNieuweSpelerForm(){
 }
 
 function slaaNieuweSpelerOp(){
+  if(blokkeerInArchief()) return;
   const naam=document.getElementById('ns-naam')?.value.trim();
   const pos=document.getElementById('ns-pos')?.value||'';
   const nr=document.getElementById('ns-nr')?.value||'';
@@ -1054,12 +1212,16 @@ function slaaNieuweSpelerOp(){
   if(!naam) return;
   const nieuw = {
     id:nextSpelerId++,naam,init:naam.split(' ').map(w=>w[0]).join('').toUpperCase().slice(0,2),
-    nr,pos,altPos:'',voet,geboortedatum:'',nationaliteit:'Nederlands',lengte:'',
-    club:'FC Binnenmaas 1',status:'beschikbaar',type:nieuweSpeler.type,
-    foto:null,blessures:[],skillVis:{fysiek:true,mentaal:true,tactisch:true,skills:true}
+    voet,geboortedatum:'',nationaliteit:'Nederlands',lengte:'',
+    club:'FC Binnenmaas 1',type:nieuweSpeler.type,
+    foto:null,skillVis:{fysiek:true,mentaal:true,tactisch:true,skills:true},
+    // seizoensgebonden velden, direct gekoppeld aan het actieve seizoen:
+    nr,pos,altPos:'',status:'beschikbaar',doelpunten:0,assists:0,blessures:[],speelminuten:0,
+    speelSeizoenId:activeSeizoenId(), speelSeizoenKoppelingId:null
   };
   spelers.push(nieuw);
   syncSpelerNaarDatabase(nieuw);
+  syncSpelerSeizoenNaarDatabase(nieuw);
   toonNieuweSpeler=false;
   nieuweSpeler={naam:'',nr:'',pos:'',altPos:'',voet:'Rechts',type:'team'};
   showToast(`${naam} toegevoegd!`);
@@ -1078,8 +1240,9 @@ function sortSpelers(lijst){
 }
 
 function renderSpelersTegel(){
-  const selectie=sortSpelers(spelers.filter(s=>s.type==='team'||s.type==='speler'));
-  const staf=spelers.filter(s=>s.type==='staf');
+  const spelersDitSeizoen=spelersInActiefSeizoen();
+  const selectie=sortSpelers(spelersDitSeizoen.filter(s=>s.type==='team'||s.type==='speler'));
+  const staf=spelersDitSeizoen.filter(s=>s.type==='staf');
 
   const spelersKaarten=selectie.map(sp=>`
     <div class="tile-card" onclick="activeSpelerId=${sp.id};draw()">
@@ -1124,8 +1287,9 @@ function renderSpelersTegel(){
 }
 
 function renderSpelersLijst(){
-  const selectie=sortSpelers(spelers.filter(s=>s.type==='team'||s.type==='speler'));
-  const staf=spelers.filter(s=>s.type==='staf');
+  const spelersDitSeizoen=spelersInActiefSeizoen();
+  const selectie=sortSpelers(spelersDitSeizoen.filter(s=>s.type==='team'||s.type==='speler'));
+  const staf=spelersDitSeizoen.filter(s=>s.type==='staf');
 
   const spelersRijen=selectie.map(sp=>`<tr onclick="activeSpelerId=${sp.id};draw()">
     <td>${sp.foto?`<img class="list-av" src="${sp.foto}" alt="">`:`<div class="list-av-ph">${sp.init}</div>`}</td>
@@ -1175,7 +1339,7 @@ function renderSpelerDetail(){
       <button class="btn-outline" style="width:140px;font-size:12px;justify-content:center" onclick="fotoTarget=${sp.id};document.getElementById('spelerfoto').click()">
         <i class="ti ti-camera" style="font-size:13px;color:var(--fcb-groen)"></i>${sp.foto?'Foto wijzigen':'Foto uploaden'}
       </button>
-      ${sp.foto?`<button class="btn-danger" style="width:140px;font-size:12px;justify-content:center" onclick="const s=spelers.find(x=>x.id===${sp.id});s.foto=null;syncSpelerNaarDatabase(s);draw()"><i class="ti ti-trash" style="font-size:12px"></i>Verwijderen</button>`:''}
+      ${sp.foto?`<button class="btn-danger" style="width:140px;font-size:12px;justify-content:center" onclick="verwijderSpelerFoto(${sp.id})"><i class="ti ti-trash" style="font-size:12px"></i>Verwijderen</button>`:''}
       <div style="font-size:11px;color:var(--text-muted);text-align:center;line-height:1.5">Speler kan eigen foto uploaden</div>
     </div>`;
 
@@ -1279,6 +1443,7 @@ let addBlessureForm=false;
 let nextBlesId=10;
 
 function slaaBlessureOp(spelerId){
+  if(blokkeerInArchief()) return;
   const naam=document.getElementById('bles-naam')?.value.trim();
   const start=document.getElementById('bles-start')?.value;
   const eind=document.getElementById('bles-eind')?.value||'';
@@ -1287,28 +1452,31 @@ function slaaBlessureOp(spelerId){
   sp.blessures.push({id:nextBlesId++,naam,startdatum:start,einddatum:eind});
   if(!eind) sp.status='geblesseerd';
   addBlessureForm=false;
-  syncSpelerNaarDatabase(sp);
+  syncSpelerSeizoenNaarDatabase(sp);
   draw();
 }
 
 function deleteBlessure(spelerId,blesId){
+  if(blokkeerInArchief()) return;
   const sp=spelers.find(s=>s.id===spelerId);
   sp.blessures=sp.blessures.filter(b=>b.id!==blesId);
   if(!sp.blessures.find(b=>!b.einddatum)) sp.status='beschikbaar';
-  syncSpelerNaarDatabase(sp);
+  syncSpelerSeizoenNaarDatabase(sp);
   draw();
 }
 
 function setEinddatum(spelerId,blesId){
+  if(blokkeerInArchief()) return;
   const today=new Date().toISOString().split('T')[0];
   const sp=spelers.find(s=>s.id===spelerId);
   sp.blessures.find(b=>b.id===blesId).einddatum=today;
   if(!sp.blessures.find(b=>!b.einddatum)) sp.status='beschikbaar';
-  syncSpelerNaarDatabase(sp);
+  syncSpelerSeizoenNaarDatabase(sp);
   draw();
 }
 
 function toggleSkillVis(spelerId,cat){
+  if(blokkeerInArchief()) return;
   const sp=spelers.find(s=>s.id===spelerId);
   sp.skillVis[cat]=!sp.skillVis[cat];
   syncSpelerNaarDatabase(sp);
@@ -1386,13 +1554,14 @@ function renderNieuweWedstrijd(){
 }
 
 function slaaNieuweWedstrijdOp(){
+  if(blokkeerInArchief()) return;
   const datum=document.getElementById('nw-datum')?.value;
   const tijd=document.getElementById('nw-tijd')?.value||'14:30';
   const teg=document.getElementById('nw-teg')?.value.trim();
   const loc=document.getElementById('nw-loc')?.value;
   const type=document.getElementById('nw-type')?.value;
   if(!datum||!teg) return;
-  const nieuw={id:nextWedstrijdId++,datum,tijd,teg,thuis:loc==='thuis',formatie:nieuweW.formatie,type,score:null,status:'gepland',opstelling:[1,3,5,6,10,11,13,16,17,19,21],bank:[],events:[]};
+  const nieuw={id:nextWedstrijdId++,datum,tijd,teg,thuis:loc==='thuis',formatie:nieuweW.formatie,type,score:null,status:'gepland',opstelling:[1,3,5,6,10,11,13,16,17,19,21],bank:[],events:[],seizoenId:activeSeizoenId()};
   wedstrijden.push(nieuw);
   wedstrijden.sort((a,b)=>a.datum.localeCompare(b.datum));
   syncWedstrijdNaarDatabase(nieuw);
@@ -1434,6 +1603,7 @@ function renderBewerkWedstrijd(w){
   </div>`;
 }
 function slaaBewerkWedstrijdOp(wedstrijdId){
+  if(blokkeerInArchief()) return;
   const w=wedstrijden.find(x=>x.id===wedstrijdId);
   if(!w) return;
   const datum=document.getElementById('bw-datum')?.value;
@@ -1531,7 +1701,7 @@ function renderWedstrijdDetail(){
 
 // ---- SELECTIE (aanstaande wedstrijd) ----
 function renderWedstrijdSelectie(w){
-  const teamSpelers = spelers.filter(s=>s.type==='team');
+  const teamSpelers = spelersInActiefSeizoen().filter(s=>s.type==='team');
   const telling = {};
   SELECTIE_OPTIES.forEach(o=>telling[o]=0);
   teamSpelers.forEach(s=>telling[getSelectieStatus(w,s.id)]++);
@@ -1931,6 +2101,7 @@ function fmtDateLang(d){
 }
 
 function startWedstrijd(wedstrijdId){
+  if(blokkeerInArchief()) return;
   const w = ensureWedstrijdVelden(wedstrijden.find(x=>x.id===wedstrijdId));
   // Controleer of er een basiself is
   const aantalOpgesteld = Object.values(w.opstellingPos).filter(Boolean).length;
@@ -1996,6 +2167,7 @@ function renderWedstrijdLive(w){
 }
 
 function floitAf(wedstrijdId){
+  if(blokkeerInArchief()) return;
   const w = ensureWedstrijdVelden(wedstrijden.find(x=>x.id===wedstrijdId));
   clearInterval(klokInterval); klokStart=null; klokPhase='afgelopen';
   w.status='gespeeld';
@@ -2013,6 +2185,7 @@ function openWissel(wedstrijdId){ liveActie={type:'wissel', wedstrijdId, uit:nul
 function sluitLiveActie(){ liveActie=null; draw(); }
 
 function registreerDoelpunt(wedstrijdId, kant, spelerId, assistId){
+  if(blokkeerInArchief()) return;
   const w = ensureWedstrijdVelden(wedstrijden.find(x=>x.id===wedstrijdId));
   const min = Math.floor(klokSeconds()/60);
   if(kant==='eigen'){
@@ -2020,8 +2193,8 @@ function registreerDoelpunt(wedstrijdId, kant, spelerId, assistId){
     const sp=spelers.find(s=>s.id===Number(spelerId));
     const assist=assistId&&assistId!=='geen'?spelers.find(s=>s.id===Number(assistId)):null;
     w.events.push({type:'doelpunt', min, speler:sp?sp.naam:'Onbekend', assist:assist?assist.naam:'geen'});
-    if(sp){ sp.doelpunten=(sp.doelpunten||0)+1; syncSpelerNaarDatabase(sp); }
-    if(assist){ assist.assists=(assist.assists||0)+1; syncSpelerNaarDatabase(assist); }
+    if(sp){ sp.doelpunten=(sp.doelpunten||0)+1; syncSpelerSeizoenNaarDatabase(sp); }
+    if(assist){ assist.assists=(assist.assists||0)+1; syncSpelerSeizoenNaarDatabase(assist); }
   } else {
     w.score.t++;
     w.events.push({type:'doelpunt', min, speler:w.teg, assist:'geen', tegen:true});
@@ -2032,6 +2205,7 @@ function registreerDoelpunt(wedstrijdId, kant, spelerId, assistId){
 }
 
 function registreerWissel(wedstrijdId, uitId, inId){
+  if(blokkeerInArchief()) return;
   const w = ensureWedstrijdVelden(wedstrijden.find(x=>x.id===wedstrijdId));
   const min = Math.floor(klokSeconds()/60);
   w.wissels.push({min, uit:Number(uitId), in:Number(inId)});
@@ -2124,6 +2298,7 @@ function openBankKiezer(wedstrijdId){
 function sluitOpstellingKiezer(){ opstellingKiezer=null; draw(); }
 
 function kiesSpelerVoorPositie(wedstrijdId, spelerId){
+  if(blokkeerInArchief()) return;
   const w = ensureWedstrijdVelden(wedstrijden.find(x=>x.id===wedstrijdId));
   if(!opstellingKiezer) return;
   if(opstellingKiezer.bank){
@@ -2140,6 +2315,7 @@ function kiesSpelerVoorPositie(wedstrijdId, spelerId){
   draw();
 }
 function maakPositieLeeg(wedstrijdId, posIndex){
+  if(blokkeerInArchief()) return;
   const w = ensureWedstrijdVelden(wedstrijden.find(x=>x.id===wedstrijdId));
   delete w.opstellingPos[posIndex];
   syncWedstrijdNaarDatabase(w);
@@ -2147,24 +2323,28 @@ function maakPositieLeeg(wedstrijdId, posIndex){
   draw();
 }
 function verwijderVanBank(wedstrijdId, spelerId){
+  if(blokkeerInArchief()) return;
   const w = ensureWedstrijdVelden(wedstrijden.find(x=>x.id===wedstrijdId));
   w.wisselBank = w.wisselBank.filter(id=>Number(id)!==Number(spelerId));
   syncWedstrijdNaarDatabase(w);
   draw();
 }
 function wijzigWedstrijdFormatie(wedstrijdId, formatie){
+  if(blokkeerInArchief()) return;
   const w = ensureWedstrijdVelden(wedstrijden.find(x=>x.id===wedstrijdId));
   w.formatie = formatie;
   syncWedstrijdNaarDatabase(w);
   draw();
 }
 function setSpeelminuten(wedstrijdId, spelerId, waarde){
+  if(blokkeerInArchief()) return;
   const w = ensureWedstrijdVelden(wedstrijden.find(x=>x.id===wedstrijdId));
   w.speelminuten[spelerId] = Math.max(0, Math.min(120, parseInt(waarde)||0));
   syncWedstrijdNaarDatabase(w);
   draw();
 }
 function herberekenSpeelminuten(wedstrijdId){
+  if(blokkeerInArchief()) return;
   const w = ensureWedstrijdVelden(wedstrijden.find(x=>x.id===wedstrijdId));
   syncSpeelminuten(w);
   syncWedstrijdNaarDatabase(w);
@@ -2415,6 +2595,8 @@ function renderBeheer(){
     ${seizoenen.map(s=>`<div class="season-row${s.actief?' active-season':''}">
       <div style="font-size:14px;font-weight:600;flex:1">${s.naam}</div>
       <span class="${s.actief?'s-actief':'s-archief'}">${s.actief?'Actief':'Archief'}</span>
+      <button class="icon-btn" onclick="bekijkArchiefSeizoen(${s.id})" title="Bekijk dit seizoen"><i class="ti ti-eye"></i></button>
+      <button class="icon-btn" onclick="openSpelerskeuzeVoorSeizoen(${s.id});closeBeheer()" title="Spelers voor dit seizoen"><i class="ti ti-users"></i></button>
       ${!s.actief?`<button class="icon-btn" onclick="activeerSeizoen(${s.id})" title="Activeer"><i class="ti ti-player-play"></i></button>`:`<button class="icon-btn" style="opacity:.3"><i class="ti ti-check"></i></button>`}
       <button class="icon-btn danger" onclick="verwijderSeizoen(${s.id})" title="Verwijder"><i class="ti ti-trash"></i></button>
     </div>`).join('')}
@@ -2444,14 +2626,132 @@ function slaClubOp(){
   if(!naam) return;
   clubNaam=naam;
   document.getElementById('clubNaamDisplay').textContent=naam;
+  syncInstellingenNaarDatabase();
   closeBeheer();
   showToast('Clubnaam opgeslagen');
 }
 
+// Bekijk een (mogelijk gearchiveerd) seizoen read-only, zonder het daadwerkelijk te activeren
+async function bekijkArchiefSeizoen(seizoenId){
+  bekijkSeizoenId = seizoenId;
+  spelers.forEach(sp=>verrijkMetSeizoenData(sp, seizoenId));
+  await laadWedstrijdenVoorSeizoen(seizoenId);
+  closeBeheer();
+  activeSpelerId=null; activeWedstrijdId=null;
+  showToast(`Bekijken: ${seizoenen.find(s=>s.id===seizoenId)?.naam||''} (alleen-lezen)`);
+  draw();
+}
+// Terug naar het echte actieve seizoen, met alles weer normaal bewerkbaar
+async function verlaatArchiefModus(){
+  bekijkSeizoenId = null;
+  const seizoenId = activeSeizoenId();
+  spelers.forEach(sp=>verrijkMetSeizoenData(sp, seizoenId));
+  await laadWedstrijdenVoorSeizoen(seizoenId);
+  activeSpelerId=null; activeWedstrijdId=null;
+  draw();
+}
+
 function activeerSeizoen(id){
   seizoenen.forEach(s=>s.actief=false);
-  seizoenen.find(s=>s.id===id).actief=true;
-  document.getElementById('seizoenLabel').textContent=seizoenen.find(s=>s.id===id).naam;
+  const nieuwActief = seizoenen.find(s=>s.id===id);
+  nieuwActief.actief=true;
+  document.getElementById('seizoenLabel').textContent=nieuwActief.naam;
+  // Alle seizoenen updaten in de database (het oude actieve wordt false, het nieuwe true)
+  seizoenen.forEach(s=>syncSeizoenNaarDatabase(s));
+  // Spelers en wedstrijden opnieuw laden/verrijken voor het nieuw-actieve seizoen
+  spelers.forEach(sp=>verrijkMetSeizoenData(sp, id));
+  laadWedstrijdenUitDatabase();
+  closeBeheer();
+  // Als er nog helemaal geen speler gekoppeld is aan dit seizoen: vraag welke spelers meedoen
+  const heeftAlKoppelingen = spelerSeizoenen.some(ss=>ss.seizoen_id===id);
+  if(!heeftAlKoppelingen){
+    openSpelerskeuzeVoorSeizoen(id);
+  } else {
+    draw();
+  }
+}
+
+// ---- Spelerskeuze bij een nieuw (nog leeg) seizoen ----
+let spelerskeuzeSeizoenId=null;
+let spelerskeuzeSelectie=new Set(); // speler-ids die aangevinkt zijn
+
+function openSpelerskeuzeVoorSeizoen(seizoenId){
+  spelerskeuzeSeizoenId=seizoenId;
+  const bestaandeKoppelingen = spelerSeizoenen.filter(ss=>ss.seizoen_id===seizoenId);
+  if(bestaandeKoppelingen.length){
+    // Dit seizoen heeft al koppelingen: toon de daadwerkelijk huidige selectie
+    spelerskeuzeSelectie = new Set(bestaandeKoppelingen.map(ss=>ss.speler_id));
+  } else {
+    // Nieuw/leeg seizoen: stel voor om de spelers van het meest recente andere seizoen over te nemen
+    const vorigSeizoenId = [...spelerSeizoenen].map(ss=>ss.seizoen_id).filter(sid=>sid!==seizoenId).sort((a,b)=>b-a)[0];
+    const vorigeSpelerIds = vorigSeizoenId ? spelerSeizoenen.filter(ss=>ss.seizoen_id===vorigSeizoenId).map(ss=>ss.speler_id) : [];
+    spelerskeuzeSelectie = new Set(vorigeSpelerIds);
+  }
+  draw();
+}
+function sluitSpelerskeuze(){ spelerskeuzeSeizoenId=null; draw(); }
+function toggleSpelerskeuze(spelerId){
+  if(spelerskeuzeSelectie.has(spelerId)) spelerskeuzeSelectie.delete(spelerId);
+  else spelerskeuzeSelectie.add(spelerId);
+  draw();
+}
+function renderSpelerskeuzeVoorSeizoen(){
+  if(!spelerskeuzeSeizoenId) return '';
+  const seizoen=seizoenen.find(s=>s.id===spelerskeuzeSeizoenId);
+  const teamSpelers=spelers.filter(s=>s.type==='team'||s.type==='speler').sort((a,b)=>a.naam.localeCompare(b.naam));
+  const rijen=teamSpelers.map(sp=>`
+    <label style="display:flex;align-items:center;gap:10px;padding:8px 4px;border-bottom:1px solid var(--border);cursor:pointer">
+      <input type="checkbox" ${spelerskeuzeSelectie.has(sp.id)?'checked':''} onchange="toggleSpelerskeuze(${sp.id})" style="width:16px;height:16px">
+      ${sp.foto?`<img src="${sp.foto}" style="width:28px;height:28px;border-radius:50%;object-fit:cover">`:`<div style="width:28px;height:28px;border-radius:50%;background:var(--fcb-groen-licht);color:#1B5E20;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600">${sp.init}</div>`}
+      <span style="font-size:13px;font-weight:500;flex:1">${sp.naam}</span>
+    </label>`).join('');
+  return`<div style="position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;z-index:200;padding:1rem">
+    <div style="background:var(--white);border-radius:var(--radius-lg);padding:1.25rem;width:100%;max-width:420px;max-height:80vh;display:flex;flex-direction:column">
+      <div style="font-size:15px;font-weight:700;margin-bottom:4px">Spelers voor ${seizoen?.naam||''}</div>
+      <div style="font-size:12px;color:var(--text-muted);margin-bottom:.75rem">Kies welke spelers meedoen in dit seizoen. Je kunt dit later nog aanpassen.</div>
+      <div style="overflow-y:auto;flex:1;border-top:1px solid var(--border)">${rijen}</div>
+      <div style="display:flex;gap:6px;justify-content:flex-end;margin-top:1rem;padding-top:.75rem;border-top:1px solid var(--border)">
+        <button class="btn-outline" style="font-size:12px;padding:6px 14px" onclick="sluitSpelerskeuze()">Later</button>
+        <button class="btn-green" style="font-size:12px;padding:6px 14px" onclick="bevestigSpelerskeuzeVoorSeizoen()"><i class="ti ti-check" style="font-size:12px"></i> Bevestigen (${spelerskeuzeSelectie.size})</button>
+      </div>
+    </div>
+  </div>`;
+}
+async function bevestigSpelerskeuzeVoorSeizoen(){
+  const seizoenId=spelerskeuzeSeizoenId;
+  const gekozenIds=new Set(spelerskeuzeSelectie);
+  const bestaandeKoppelingen = spelerSeizoenen.filter(ss=>ss.seizoen_id===seizoenId);
+  const bestaandeSpelerIds = new Set(bestaandeKoppelingen.map(ss=>ss.speler_id));
+
+  // 1. Spelers die uitgevinkt zijn maar al een koppeling hadden: koppeling verwijderen
+  const teVerwijderen = bestaandeKoppelingen.filter(ss=>!gekozenIds.has(ss.speler_id));
+  for(const ss of teVerwijderen){
+    const { error } = await db.from('speler_seizoenen').delete().eq('id', ss.id);
+    if(error){ console.error('Fout bij verwijderen speler-seizoen koppeling:', error.message||error, error); showToast('Verwijderen mislukt: '+(error.message||'controleer verbinding')); return; }
+  }
+  spelerSeizoenen = spelerSeizoenen.filter(ss=>!teVerwijderen.includes(ss));
+
+  // 2. Nieuw aangevinkte spelers die nog geen koppeling hadden: nieuwe koppeling aanmaken
+  const nieuweIds = [...gekozenIds].filter(id=>!bestaandeSpelerIds.has(id));
+  if(nieuweIds.length){
+    const vorigSeizoenId = [...spelerSeizoenen].map(ss=>ss.seizoen_id).filter(sid=>sid!==seizoenId).sort((a,b)=>b-a)[0];
+    const rijen = nieuweIds.map(spelerId=>{
+      const vorige = vorigSeizoenId ? spelerSeizoenen.find(ss=>ss.speler_id===spelerId && ss.seizoen_id===vorigSeizoenId) : null;
+      return {
+        speler_id:spelerId, seizoen_id:seizoenId,
+        nr:vorige?.nr??'', pos:vorige?.pos??'', alt_pos:vorige?.alt_pos??'',
+        status:'beschikbaar', doelpunten:0, assists:0, blessures:[], speelminuten:0
+      };
+    });
+    const { data, error } = await db.from('speler_seizoenen').insert(rijen).select();
+    if(error){ console.error('Fout bij aanmaken speler-seizoen koppelingen:', error.message||error, error); showToast('Opslaan mislukt: '+(error.message||'controleer verbinding')); return; }
+    spelerSeizoenen.push(...(data||[]));
+  }
+
+  // 3. Herverrijk spelers als dit het actieve seizoen is
+  if(seizoenId===activeSeizoenId()) spelers.forEach(sp=>verrijkMetSeizoenData(sp, seizoenId));
+  spelerskeuzeSeizoenId=null;
+  showToast(`${gekozenIds.size} spelers gekoppeld aan dit seizoen`);
   draw();
 }
 
@@ -2459,6 +2759,7 @@ function verwijderSeizoen(id){
   const s=seizoenen.find(x=>x.id===id);
   if(s.actief) return;
   seizoenen.splice(seizoenen.indexOf(s),1);
+  verwijderSeizoenUitDatabase(id);
   draw();
 }
 
@@ -2466,7 +2767,9 @@ function addSeizoen(){
   const el=document.getElementById('nieuwSeizoenInput');
   const naam=el?.value.trim();
   if(!naam) return;
-  seizoenen.push({id:nextSeizoenId++,naam,actief:false});
+  const nieuw={id:nextSeizoenId++,naam,actief:false};
+  seizoenen.push(nieuw);
+  syncSeizoenNaarDatabase(nieuw);
   el.value='';
   draw();
 }
@@ -2493,7 +2796,17 @@ function comprimeerAfbeelding(dataUrl){
   });
 }
 
+function verwijderSpelerFoto(spelerId){
+  if(blokkeerInArchief()) return;
+  const sp=spelers.find(s=>s.id===spelerId);
+  if(!sp) return;
+  sp.foto=null;
+  syncSpelerNaarDatabase(sp);
+  draw();
+}
+
 function uploadSpelerFoto(e){
+  if(blokkeerInArchief()) return;
   const file=e.target.files[0];
   if(!file||!fotoTarget) return;
   const r=new FileReader();
@@ -2511,11 +2824,10 @@ function uploadSpelerFoto(e){
 function uploadLogo(e){
   const file=e.target.files[0]; if(!file) return;
   const r=new FileReader();
-  r.onload=ev=>{
-    document.getElementById('limg').src=ev.target.result;
-    document.getElementById('limg').style.display='block';
-    document.getElementById('lph').style.display='none';
-    document.getElementById('rmLogoBtn').style.display='inline-flex';
+  r.onload=async ev=>{
+    clubLogo = await comprimeerAfbeelding(ev.target.result);
+    toonLogoInUI();
+    syncInstellingenNaarDatabase();
   };
   r.readAsDataURL(file);
 }
@@ -2546,11 +2858,10 @@ function profielInitialen(){
 }
 
 function removeLogo(){
-  document.getElementById('limg').src='';
-  document.getElementById('limg').style.display='none';
-  document.getElementById('lph').style.display='flex';
-  document.getElementById('rmLogoBtn').style.display='none';
+  clubLogo = null;
+  toonLogoInUI();
   document.getElementById('lf').value='';
+  syncInstellingenNaarDatabase();
 }
 
 
@@ -4219,13 +4530,16 @@ function verwijderItemVeld(trainingId, oefId, itemIdx){
 
 // ---- START ----
 draw(); // teken direct met de ingebouwde standaardlijst, zodat het scherm niet leeg is
-laadSpelersUitDatabase().then(dbWasLeeg=>{
-  // Als de tabel nog leeg was (nieuw Supabase-project), vullen we hem eenmalig
-  if(dbWasLeeg){
-    eenmaligeSeedNaarDatabase().then(laadSpelersUitDatabase);
-  }
-});
-laadWedstrijdenUitDatabase(); // wedstrijden komen puur uit de database, geen ingebouwde standaardlijst
+laadInstellingenUitDatabase(); // clubnaam en logo (onafhankelijk van seizoenen)
+
+// Volgorde is belangrijk: eerst het actieve seizoen weten, dan pas spelers verrijken, dan wedstrijden filteren
+laadSeizoenenUitDatabase()
+  .then(()=>laadSpelersUitDatabase())
+  .then(dbWasLeeg=>{
+    // Als de tabel nog leeg was (nieuw Supabase-project), vullen we hem eenmalig
+    if(dbWasLeeg) return eenmaligeSeedNaarDatabase().then(laadSpelersUitDatabase);
+  })
+  .then(()=>laadWedstrijdenUitDatabase());
 </script>
 </body>
 </html>
