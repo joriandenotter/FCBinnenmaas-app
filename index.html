@@ -3634,7 +3634,7 @@ function verwijderOefening(trainingId, oefId){
           ${oef.opmerking?`<div style="background:#f9f9f9;border:1px solid var(--border);border-radius:var(--radius);padding:10px 14px;margin-bottom:12px;font-size:13px;color:var(--text);white-space:pre-wrap">${oef.opmerking}</div>`:''}
           <div style="display:grid;grid-template-columns:1fr auto;gap:16px;align-items:start">
             <svg viewBox="0 0 ${VW} ${VH}" xmlns="http://www.w3.org/2000/svg"
-              style="width:100%;border-radius:var(--radius);display:block">
+              style="width:100%;max-width:340px;border-radius:var(--radius);display:block;margin:0 auto">
               <defs><pattern id="gras${oef.id}" x="0" y="0" width="${VW}" height="35" patternUnits="userSpaceOnUse">
                 <rect width="${VW}" height="17" fill="#2a5c17"/><rect y="17" width="${VW}" height="18" fill="#2d6319"/>
               </pattern></defs>
@@ -3780,7 +3780,7 @@ function verwijderOefening(trainingId, oefId){
             </div>`:`<div style="font-size:11px;color:var(--text-muted);margin-bottom:6px">Selecteer een item rechts om te plaatsen</div>`}
             <svg viewBox="0 0 ${VW} ${VH}" xmlns="http://www.w3.org/2000/svg"
               data-veld="editor" data-training="${trainingId}" data-oef="${oef.id}"
-              style="width:100%;border-radius:var(--radius);cursor:${actiefItem?'crosshair':'default'};display:block;border:2px solid ${actiefItem?'var(--fcb-groen)':'transparent'}"
+              style="width:100%;max-width:340px;margin:0 auto;border-radius:var(--radius);cursor:${actiefItem?'crosshair':'default'};display:block;border:2px solid ${actiefItem?'var(--fcb-groen)':'transparent'}"
               onclick="handleVeldKlik(event,${trainingId},${oef.id})"
               onmousemove="handleVeldMuisBeweging(event)"
               onmouseleave="muisVeldPos=null;tekenAfstandLijn()">
@@ -4074,7 +4074,7 @@ function renderNieuweOefeningForm(trainingId, aanwezigen){
       ${(actiefItem.type==='pijl'||actiefItem.type==='pijl_streep')?(pijlStart?'Klik eindpunt':'Klik startpunt'):'Klik op het veld om te plaatsen — klik item om te verwijderen'}
     </div>`:`<div style="font-size:10px;color:var(--text-muted);margin-bottom:4px">Selecteer een item en klik op het veld</div>`}
     <svg data-veld="nieuw" data-oef="nieuw" viewBox="0 0 ${VW} ${VH}" xmlns="http://www.w3.org/2000/svg"
-      style="width:100%;border-radius:var(--radius);cursor:${actiefItem?'crosshair':'default'};display:block;border:2px solid ${actiefItem?'var(--fcb-groen)':'transparent'}"
+      style="width:100%;max-width:340px;margin:0 auto;border-radius:var(--radius);cursor:${actiefItem?'crosshair':'default'};display:block;border:2px solid ${actiefItem?'var(--fcb-groen)':'transparent'}"
       onclick="handleNieuwVeldKlik(event)"
       onmousemove="handleVeldMuisBeweging(event)"
       onmouseleave="muisVeldPos=null;tekenAfstandLijn()">
