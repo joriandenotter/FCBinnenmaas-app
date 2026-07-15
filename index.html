@@ -605,6 +605,94 @@ async function verwijderWedstrijdUitDatabase(id){
 }
 
 // ============================================================
+// SUPABASE: laden en synchroniseren van trainingen + oefeningen
+// ============================================================
+function trainingNaarRij(t){
+  return {
+    id: t.id, seizoen_id: t.seizoenId, datum: t.datum, dag: t.dag, tijd: t.tijd,
+    geannuleerd: !!t.geannuleerd, aanwezigheid: t.aanwezigheid||{}
+  };
+}
+function rijNaarTraining(r){
+  return {
+    id:r.id, seizoenId:r.seizoen_id, datum:r.datum, dag:r.dag, tijd:r.tijd,
+    geannuleerd:!!r.geannuleerd, aanwezigheid:r.aanwezigheid||{}
+  };
+}
+function oefeningNaarRij(oef, trainingId, volgorde){
+  const rij = {
+    training_id: trainingId, naam: oef.naam, veld: oef.veld||'heel',
+    teams: oef.teams||[], items: oef.items||[], verbindingen: oef.verbindingen||[],
+    opmerking: oef.opmerking||'', volgorde: volgorde??0
+  };
+  if(oef.dbId) rij.id = oef.dbId;
+  return rij;
+}
+function rijNaarOefening(r){
+  return {
+    id:r.id, dbId:r.id, naam:r.naam, veld:r.veld, teams:r.teams||[], items:r.items||[],
+    verbindingen:r.verbindingen||[], opmerking:r.opmerking||'', volgorde:r.volgorde||0
+  };
+}
+
+async function laadTrainingenVoorSeizoen(seizoenId){
+  let query = db.from('trainingen').select('*').order('datum');
+  if(seizoenId) query = query.eq('seizoen_id', seizoenId);
+  const { data, error } = await query;
+  if(error){ console.error('Fout bij laden trainingen:', error.message||error, error); showToast('Kon trainingen niet laden: '+(error.message||'onbekende fout'), 'fout'); return; }
+  trainingen = (data||[]).map(rijNaarTraining);
+  nextTrainingId = Math.max(...trainingen.map(t=>t.id), 0) + 1;
+  await laadOefeningenVoorTrainingen(trainingen.map(t=>t.id));
+  draw();
+}
+async function laadTrainingenUitDatabase(){
+  await laadTrainingenVoorSeizoen(activeSeizoenId());
+}
+
+async function laadOefeningenVoorTrainingen(trainingIds){
+  oefeningen = {};
+  if(!trainingIds.length) return;
+  const { data, error } = await db.from('oefeningen').select('*').in('training_id', trainingIds).order('volgorde');
+  if(error){ console.error('Fout bij laden oefeningen:', error.message||error, error); showToast('Kon oefeningen niet laden: '+(error.message||'onbekende fout'), 'fout'); return; }
+  (data||[]).forEach(r=>{
+    if(!oefeningen[r.training_id]) oefeningen[r.training_id] = [];
+    oefeningen[r.training_id].push(rijNaarOefening(r));
+  });
+  const alleOefIds = (data||[]).map(r=>r.id);
+  nextOefeningId = Math.max(...alleOefIds, 0) + 1;
+}
+
+async function syncTrainingNaarDatabase(t){
+  const { error } = await db.from('trainingen').upsert(trainingNaarRij(t));
+  if(error){ console.error('Fout bij opslaan training:', error.message||error, error); showToast('Opslaan training mislukt: '+(error.message||'controleer verbinding'), 'fout'); }
+}
+async function verwijderTrainingUitDatabase(id){
+  const { error } = await db.from('trainingen').delete().eq('id', id);
+  if(error){ console.error('Fout bij verwijderen training:', error.message||error, error); showToast('Verwijderen training mislukt', 'fout'); }
+}
+
+// Slaat één oefening op. Als de oefening nog geen echt database-id heeft (net lokaal aangemaakt),
+// wordt na het aanmaken het echte id teruggeschreven in het lokale object.
+async function syncOefeningNaarDatabase(oef, trainingId){
+  const volgorde = (oefeningen[trainingId]||[]).findIndex(o=>o===oef);
+  const isNieuw = !oef.dbId;
+  const rij = oefeningNaarRij(oef, trainingId, volgorde);
+  if(isNieuw){
+    const { data, error } = await db.from('oefeningen').insert(rij).select().maybeSingle();
+    if(error){ console.error('Fout bij aanmaken oefening:', error.message||error, error); showToast('Opslaan oefening mislukt: '+(error.message||'controleer verbinding'), 'fout'); return; }
+    if(data){ oef.dbId = data.id; }
+  } else {
+    const { error } = await db.from('oefeningen').update(rij).eq('id', oef.dbId);
+    if(error){ console.error('Fout bij bijwerken oefening:', error.message||error, error); showToast('Opslaan oefening mislukt: '+(error.message||'controleer verbinding'), 'fout'); }
+  }
+}
+async function verwijderOefeningUitDatabase(oef){
+  if(!oef.dbId) return; // was nog nooit opgeslagen, niets te verwijderen
+  const { error } = await db.from('oefeningen').delete().eq('id', oef.dbId);
+  if(error){ console.error('Fout bij verwijderen oefening:', error.message||error, error); showToast('Verwijderen oefening mislukt', 'fout'); }
+}
+
+// ============================================================
 // SUPABASE: laden en synchroniseren van clubinstellingen (naam + logo)
 // ============================================================
 async function laadInstellingenUitDatabase(){
@@ -2646,6 +2734,7 @@ async function bekijkArchiefSeizoen(seizoenId){
   bekijkSeizoenId = seizoenId;
   spelers.forEach(sp=>verrijkMetSeizoenData(sp, seizoenId));
   await laadWedstrijdenVoorSeizoen(seizoenId);
+  await laadTrainingenVoorSeizoen(seizoenId);
   closeBeheer();
   activeSpelerId=null; activeWedstrijdId=null;
   showToast(`Bekijken: ${seizoenen.find(s=>s.id===seizoenId)?.naam||''} (alleen-lezen)`);
@@ -2657,6 +2746,7 @@ async function verlaatArchiefModus(){
   const seizoenId = activeSeizoenId();
   spelers.forEach(sp=>verrijkMetSeizoenData(sp, seizoenId));
   await laadWedstrijdenVoorSeizoen(seizoenId);
+  await laadTrainingenVoorSeizoen(seizoenId);
   activeSpelerId=null; activeWedstrijdId=null;
   draw();
 }
@@ -2668,9 +2758,10 @@ function activeerSeizoen(id){
   document.getElementById('seizoenLabel').textContent=nieuwActief.naam;
   // Alle seizoenen updaten in de database (het oude actieve wordt false, het nieuwe true)
   seizoenen.forEach(s=>syncSeizoenNaarDatabase(s));
-  // Spelers en wedstrijden opnieuw laden/verrijken voor het nieuw-actieve seizoen
+  // Spelers, wedstrijden en trainingen opnieuw laden/verrijken voor het nieuw-actieve seizoen
   spelers.forEach(sp=>verrijkMetSeizoenData(sp, id));
   laadWedstrijdenUitDatabase();
+  laadTrainingenUitDatabase();
   closeBeheer();
   // Als er nog helemaal geen speler gekoppeld is aan dit seizoen: vraag welke spelers meedoen
   const heeftAlKoppelingen = spelerSeizoenen.some(ss=>ss.seizoen_id===id);
@@ -2939,94 +3030,7 @@ function removeLogo(){
 // ============================================================
 // TRAININGEN DATA
 // ============================================================
-const trainingen = [
-  {id:1,datum:"2026-08-04",dag:"Dinsdag",tijd:"20:15-21:45",aanwezigheid:{}},
-  {id:2,datum:"2026-08-06",dag:"Donderdag",tijd:"20:15-21:45",aanwezigheid:{}},
-  {id:3,datum:"2026-08-11",dag:"Dinsdag",tijd:"20:15-21:45",aanwezigheid:{}},
-  {id:4,datum:"2026-08-13",dag:"Donderdag",tijd:"20:15-21:45",aanwezigheid:{}},
-  {id:5,datum:"2026-08-18",dag:"Dinsdag",tijd:"20:15-21:45",aanwezigheid:{}},
-  {id:6,datum:"2026-08-20",dag:"Donderdag",tijd:"20:15-21:45",aanwezigheid:{}},
-  {id:7,datum:"2026-08-25",dag:"Dinsdag",tijd:"20:15-21:45",aanwezigheid:{}},
-  {id:8,datum:"2026-08-27",dag:"Donderdag",tijd:"20:15-21:45",aanwezigheid:{}},
-  {id:9,datum:"2026-09-01",dag:"Dinsdag",tijd:"20:15-21:45",aanwezigheid:{}},
-  {id:10,datum:"2026-09-03",dag:"Donderdag",tijd:"20:15-21:45",aanwezigheid:{}},
-  {id:11,datum:"2026-09-08",dag:"Dinsdag",tijd:"20:15-21:45",aanwezigheid:{}},
-  {id:12,datum:"2026-09-10",dag:"Donderdag",tijd:"20:15-21:45",aanwezigheid:{}},
-  {id:13,datum:"2026-09-15",dag:"Dinsdag",tijd:"20:15-21:45",aanwezigheid:{}},
-  {id:14,datum:"2026-09-17",dag:"Donderdag",tijd:"20:15-21:45",aanwezigheid:{}},
-  {id:15,datum:"2026-09-22",dag:"Dinsdag",tijd:"20:15-21:45",aanwezigheid:{}},
-  {id:16,datum:"2026-09-24",dag:"Donderdag",tijd:"20:15-21:45",aanwezigheid:{}},
-  {id:17,datum:"2026-09-29",dag:"Dinsdag",tijd:"20:15-21:45",aanwezigheid:{}},
-  {id:18,datum:"2026-10-01",dag:"Donderdag",tijd:"20:15-21:45",aanwezigheid:{}},
-  {id:19,datum:"2026-10-06",dag:"Dinsdag",tijd:"20:15-21:45",aanwezigheid:{}},
-  {id:20,datum:"2026-10-08",dag:"Donderdag",tijd:"20:15-21:45",aanwezigheid:{}},
-  {id:21,datum:"2026-10-13",dag:"Dinsdag",tijd:"20:15-21:45",aanwezigheid:{}},
-  {id:22,datum:"2026-10-15",dag:"Donderdag",tijd:"20:15-21:45",aanwezigheid:{}},
-  {id:23,datum:"2026-10-20",dag:"Dinsdag",tijd:"20:15-21:45",aanwezigheid:{}},
-  {id:24,datum:"2026-10-22",dag:"Donderdag",tijd:"20:15-21:45",aanwezigheid:{}},
-  {id:25,datum:"2026-10-27",dag:"Dinsdag",tijd:"20:15-21:45",aanwezigheid:{}},
-  {id:26,datum:"2026-10-29",dag:"Donderdag",tijd:"20:15-21:45",aanwezigheid:{}},
-  {id:27,datum:"2026-11-03",dag:"Dinsdag",tijd:"20:15-21:45",aanwezigheid:{}},
-  {id:28,datum:"2026-11-05",dag:"Donderdag",tijd:"20:15-21:45",aanwezigheid:{}},
-  {id:29,datum:"2026-11-10",dag:"Dinsdag",tijd:"20:15-21:45",aanwezigheid:{}},
-  {id:30,datum:"2026-11-12",dag:"Donderdag",tijd:"20:15-21:45",aanwezigheid:{}},
-  {id:31,datum:"2026-11-17",dag:"Dinsdag",tijd:"20:15-21:45",aanwezigheid:{}},
-  {id:32,datum:"2026-11-19",dag:"Donderdag",tijd:"20:15-21:45",aanwezigheid:{}},
-  {id:33,datum:"2026-11-24",dag:"Dinsdag",tijd:"20:15-21:45",aanwezigheid:{}},
-  {id:34,datum:"2026-11-26",dag:"Donderdag",tijd:"20:15-21:45",aanwezigheid:{}},
-  {id:35,datum:"2026-12-01",dag:"Dinsdag",tijd:"20:15-21:45",aanwezigheid:{}},
-  {id:36,datum:"2026-12-03",dag:"Donderdag",tijd:"20:15-21:45",aanwezigheid:{}},
-  {id:37,datum:"2026-12-08",dag:"Dinsdag",tijd:"20:15-21:45",aanwezigheid:{}},
-  {id:38,datum:"2026-12-10",dag:"Donderdag",tijd:"20:15-21:45",aanwezigheid:{}},
-  {id:39,datum:"2026-12-15",dag:"Dinsdag",tijd:"20:15-21:45",aanwezigheid:{}},
-  {id:40,datum:"2026-12-17",dag:"Donderdag",tijd:"20:15-21:45",aanwezigheid:{}},
-  {id:41,datum:"2026-12-22",dag:"Dinsdag",tijd:"20:15-21:45",aanwezigheid:{}},
-  {id:42,datum:"2026-12-24",dag:"Donderdag",tijd:"20:15-21:45",aanwezigheid:{}},
-  {id:43,datum:"2026-12-29",dag:"Dinsdag",tijd:"20:15-21:45",aanwezigheid:{}},
-  {id:44,datum:"2026-12-31",dag:"Donderdag",tijd:"20:15-21:45",aanwezigheid:{}},
-  {id:45,datum:"2027-01-05",dag:"Dinsdag",tijd:"20:15-21:45",aanwezigheid:{}},
-  {id:46,datum:"2027-01-07",dag:"Donderdag",tijd:"20:15-21:45",aanwezigheid:{}},
-  {id:47,datum:"2027-01-12",dag:"Dinsdag",tijd:"20:15-21:45",aanwezigheid:{}},
-  {id:48,datum:"2027-01-14",dag:"Donderdag",tijd:"20:15-21:45",aanwezigheid:{}},
-  {id:49,datum:"2027-01-19",dag:"Dinsdag",tijd:"20:15-21:45",aanwezigheid:{}},
-  {id:50,datum:"2027-01-21",dag:"Donderdag",tijd:"20:15-21:45",aanwezigheid:{}},
-  {id:51,datum:"2027-01-26",dag:"Dinsdag",tijd:"20:15-21:45",aanwezigheid:{}},
-  {id:52,datum:"2027-01-28",dag:"Donderdag",tijd:"20:15-21:45",aanwezigheid:{}},
-  {id:53,datum:"2027-02-02",dag:"Dinsdag",tijd:"20:15-21:45",aanwezigheid:{}},
-  {id:54,datum:"2027-02-04",dag:"Donderdag",tijd:"20:15-21:45",aanwezigheid:{}},
-  {id:55,datum:"2027-02-09",dag:"Dinsdag",tijd:"20:15-21:45",aanwezigheid:{}},
-  {id:56,datum:"2027-02-11",dag:"Donderdag",tijd:"20:15-21:45",aanwezigheid:{}},
-  {id:57,datum:"2027-02-16",dag:"Dinsdag",tijd:"20:15-21:45",aanwezigheid:{}},
-  {id:58,datum:"2027-02-18",dag:"Donderdag",tijd:"20:15-21:45",aanwezigheid:{}},
-  {id:59,datum:"2027-02-23",dag:"Dinsdag",tijd:"20:15-21:45",aanwezigheid:{}},
-  {id:60,datum:"2027-02-25",dag:"Donderdag",tijd:"20:15-21:45",aanwezigheid:{}},
-  {id:61,datum:"2027-03-02",dag:"Dinsdag",tijd:"20:15-21:45",aanwezigheid:{}},
-  {id:62,datum:"2027-03-04",dag:"Donderdag",tijd:"20:15-21:45",aanwezigheid:{}},
-  {id:63,datum:"2027-03-09",dag:"Dinsdag",tijd:"20:15-21:45",aanwezigheid:{}},
-  {id:64,datum:"2027-03-11",dag:"Donderdag",tijd:"20:15-21:45",aanwezigheid:{}},
-  {id:65,datum:"2027-03-16",dag:"Dinsdag",tijd:"20:15-21:45",aanwezigheid:{}},
-  {id:66,datum:"2027-03-18",dag:"Donderdag",tijd:"20:15-21:45",aanwezigheid:{}},
-  {id:67,datum:"2027-03-23",dag:"Dinsdag",tijd:"20:15-21:45",aanwezigheid:{}},
-  {id:68,datum:"2027-03-25",dag:"Donderdag",tijd:"20:15-21:45",aanwezigheid:{}},
-  {id:69,datum:"2027-03-30",dag:"Dinsdag",tijd:"20:15-21:45",aanwezigheid:{}},
-  {id:70,datum:"2027-04-01",dag:"Donderdag",tijd:"20:15-21:45",aanwezigheid:{}},
-  {id:71,datum:"2027-04-06",dag:"Dinsdag",tijd:"20:15-21:45",aanwezigheid:{}},
-  {id:72,datum:"2027-04-08",dag:"Donderdag",tijd:"20:15-21:45",aanwezigheid:{}},
-  {id:73,datum:"2027-04-13",dag:"Dinsdag",tijd:"20:15-21:45",aanwezigheid:{}},
-  {id:74,datum:"2027-04-15",dag:"Donderdag",tijd:"20:15-21:45",aanwezigheid:{}},
-  {id:75,datum:"2027-04-20",dag:"Dinsdag",tijd:"20:15-21:45",aanwezigheid:{}},
-  {id:76,datum:"2027-04-22",dag:"Donderdag",tijd:"20:15-21:45",aanwezigheid:{}},
-  {id:77,datum:"2027-04-27",dag:"Dinsdag",tijd:"20:15-21:45",aanwezigheid:{}},
-  {id:78,datum:"2027-04-29",dag:"Donderdag",tijd:"20:15-21:45",aanwezigheid:{}},
-  {id:79,datum:"2027-05-04",dag:"Dinsdag",tijd:"20:15-21:45",aanwezigheid:{}},
-  {id:80,datum:"2027-05-06",dag:"Donderdag",tijd:"20:15-21:45",aanwezigheid:{}},
-  {id:81,datum:"2027-05-11",dag:"Dinsdag",tijd:"20:15-21:45",aanwezigheid:{}},
-  {id:82,datum:"2027-05-13",dag:"Donderdag",tijd:"20:15-21:45",aanwezigheid:{}},
-  {id:83,datum:"2027-05-18",dag:"Dinsdag",tijd:"20:15-21:45",aanwezigheid:{}},
-  {id:84,datum:"2027-05-20",dag:"Donderdag",tijd:"20:15-21:45",aanwezigheid:{}},
-  {id:85,datum:"2027-05-25",dag:"Dinsdag",tijd:"20:15-21:45",aanwezigheid:{}},
-  {id:86,datum:"2027-05-27",dag:"Donderdag",tijd:"20:15-21:45",aanwezigheid:{}},
-];
+let trainingen = []; // wordt gevuld vanuit Supabase bij het opstarten
 
 const AFWEZIGHEIDSREDENEN = ['Blessure','Vakantie','Werk','Overig'];
 
@@ -3059,6 +3063,8 @@ function vindPionDichtbij(items, x, y, drempel){
 let geselecteerdPlaatsItem = null; // {trainingId, oefId, type, groot, kleur}
 let nieuwOefening = {naam:'', veld:'heel', teams:[], items:[], opmerking:'', verbindingen:[]}; laatsteGeplaatstePionId=null;
 let nextOefeningId = 1;
+let nextTrainingId = 1;
+let toonNieuweTraining = false;
 let nextTeamId = 1;
 let dragItem = null; // {type:'pion'|'doel', groot:bool, kleur, x, y}
 const TEAM_KLEUREN = {blauw:'#185FA5', rood:'#E24B4A', geel:'#E8C400', groen:'#2B7A30'};
@@ -3070,6 +3076,7 @@ function getAanwezigheid(training, spelerId){
 
 
 function setAanwezigheid(trainingId, spelerId, status){
+  if(blokkeerInArchief()) return;
   const t = trainingen.find(x=>x.id===trainingId);
   if(!t) return;
   const huidig = getAanwezigheid(t, spelerId);
@@ -3081,6 +3088,7 @@ function setAanwezigheid(trainingId, spelerId, status){
   } else {
     t.aanwezigheid[spelerId] = status;
   }
+  syncTrainingNaarDatabase(t);
   draw();
 }
 
@@ -3121,6 +3129,12 @@ function renderTrainingen(){
   const gefilterd = getFilteredTrainingen();
   const maanden = getMaanden();
   const now = new Date().toISOString().split('T')[0];
+
+  const toevoegBalk = `
+    <div style="display:flex;justify-content:flex-end;margin-bottom:1rem">
+      <button class="btn-green" style="font-size:12px;padding:6px 12px" onclick="toonNieuweTraining=!toonNieuweTraining;draw()"><i class="ti ti-plus" style="font-size:13px"></i> Training toevoegen</button>
+    </div>
+    ${toonNieuweTraining?renderNieuweTraining():''}`;
 
   const filterBar = `
     <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:1rem">
@@ -3431,6 +3445,7 @@ function renderTrainingen(){
   return `
     <div class="card">
       <div class="card-hdr"><div class="card-title"><div class="gdot"></div>Trainingsopkomst</div></div>
+      ${toevoegBalk}
       ${filterBar}${viewToggle}
       ${trainingRijen}
     </div>`;
@@ -3446,30 +3461,36 @@ function getOefeningen(trainingId){
 
 
 function slaOefeningOp(trainingId){
+  if(blokkeerInArchief()) return;
   const naam = document.getElementById('oef-naam-input')?.value.trim();
   if(!naam) return;
   if(!oefeningen[trainingId]) oefeningen[trainingId] = [];
-  oefeningen[trainingId].push({
+  const nieuweOef = {
     id: nextOefeningId++,
+    dbId: null, // wordt gevuld zodra de database het echte id teruggeeft
     naam,
     veld: nieuwOefening.veld,
     teams: nieuwOefening.teams.map(t=>({...t, spelers:[...(t.spelers||[])]})),
     items: [...(nieuwOefening.items||[])],
     opmerking: nieuwOefening.opmerking||'',
     verbindingen: [...(nieuwOefening.verbindingen||[])],
-  });
-  const saved = oefeningen[trainingId][oefeningen[trainingId].length-1];
+  };
+  oefeningen[trainingId].push(nieuweOef);
+  syncOefeningNaarDatabase(nieuweOef, trainingId);
   toonNieuweOefening = null;
   nieuwOefening = {naam:'', veld:'heel', teams:[], items:[], opmerking:'', verbindingen:[]}; laatsteGeplaatstePionId=null;
-  activeOefeningId = saved.id;
+  activeOefeningId = nieuweOef.id;
   bewerkModus = false;
   geselecteerdPlaatsItem = null;
   draw();
 }
 
 function verwijderOefening(trainingId, oefId){
+  if(blokkeerInArchief()) return;
   if(oefeningen[trainingId]){
+    const oef = oefeningen[trainingId].find(o=>o.id===oefId);
     oefeningen[trainingId] = oefeningen[trainingId].filter(o=>o.id!==oefId);
+    if(oef) verwijderOefeningUitDatabase(oef);
     draw();
   }
 }function renderVoorbereidingInhoud(trainingId){
@@ -4112,6 +4133,7 @@ function saveUndoState(){
 }
 
 function undo(){
+  if(blokkeerInArchief()) return;
   if(undoStack.length === 0) return;
   const snapshot = undoStack.pop();
   // Herstel nieuw oefening items
@@ -4119,7 +4141,10 @@ function undo(){
   // Herstel oefening items als die open was
   if(snapshot.oefId && snapshot.trainingId && snapshot.oefItems !== null){
     const oef = (oefeningen[snapshot.trainingId]||[]).find(o=>o.id===snapshot.oefId);
-    if(oef) oef.items = JSON.parse(JSON.stringify(snapshot.oefItems));
+    if(oef){
+      oef.items = JSON.parse(JSON.stringify(snapshot.oefItems));
+      syncOefeningNaarDatabase(oef, snapshot.trainingId);
+    }
   }
   pijlStart = null;
   draw();
@@ -4237,6 +4262,7 @@ function annuleerNieuweOefening(){
 
 
 function toggleTeamInOefening(trainingId, oefId, kleur, label){
+  if(blokkeerInArchief()) return;
   const oef = (oefeningen[trainingId]||[]).find(o=>o.id===oefId);
   if(!oef) return;
   const heeftTeam = oef.teams.some(t=>t.kleur===kleur);
@@ -4245,6 +4271,7 @@ function toggleTeamInOefening(trainingId, oefId, kleur, label){
   } else {
     oef.teams.push({id:nextTeamId++, naam:label+' team', kleur:kleur, spelers:[]});
   }
+  syncOefeningNaarDatabase(oef, trainingId);
   draw();
 }
 
@@ -4264,21 +4291,25 @@ function verwijderSpelerUitNieuwTeam(kleur, spelerId){
 }
 
 function koppelSpelerAanTeam(trainingId, oefId, teamId, spelerId){
+  if(blokkeerInArchief()) return;
   const oef = (oefeningen[trainingId]||[]).find(o=>o.id===oefId);
   if(!oef) return;
   const team = oef.teams.find(t=>t.id===teamId);
   if(!team) return;
   if(!team.spelers) team.spelers=[];
   if(!team.spelers.includes(spelerId)) team.spelers.push(spelerId);
+  syncOefeningNaarDatabase(oef, trainingId);
   draw();
 }
 
 function ontkoppelSpeler(trainingId, oefId, teamId, spelerId){
+  if(blokkeerInArchief()) return;
   const oef = (oefeningen[trainingId]||[]).find(o=>o.id===oefId);
   if(!oef) return;
   const team = oef.teams.find(t=>t.id===teamId);
   if(!team||!team.spelers) return;
   team.spelers = team.spelers.filter(id=>id!==spelerId);
+  syncOefeningNaarDatabase(oef, trainingId);
   draw();
 }
 
@@ -4288,6 +4319,7 @@ function handleVeldKlik(event, trainingId, oefId){
   if(dragPijl || controlPointClicked) return;
   if(verwijderModus) return;
   if(!geselecteerdPlaatsItem) return;
+  if(blokkeerInArchief()) return;
   if(geselecteerdPlaatsItem.trainingId!==trainingId||geselecteerdPlaatsItem.oefId!==oefId) return;
   const svg = event.currentTarget || event.target.closest('svg');
   if(!svg) return;
@@ -4300,11 +4332,12 @@ function handleVeldKlik(event, trainingId, oefId){
   if(!oef.verbindingen) oef.verbindingen=[];
   if(geselecteerdPlaatsItem.type==='pijl'||geselecteerdPlaatsItem.type==='pijl_streep'){
     if(!pijlStart){ pijlStart={x,y}; draw(); }
-    else { saveUndoState(); oef.items.push({type:'pijl',kleur:'white',groot:false,x:pijlStart.x,y:pijlStart.y,ex:x,ey:y}); pijlStart=null; draw(); }
+    else { saveUndoState(); oef.items.push({type:'pijl',kleur:'white',groot:false,x:pijlStart.x,y:pijlStart.y,ex:x,ey:y}); pijlStart=null; syncOefeningNaarDatabase(oef,trainingId); draw(); }
   } else if(geselecteerdPlaatsItem.type==='nummer'){
     const volgend = Math.max(0,...oef.items.filter(i=>i.type==='nummer').map(i=>i.nummer||0))+1;
     saveUndoState();
     oef.items.push({type:'nummer',kleur:'white',groot:false,x,y,nummer:volgend});
+    syncOefeningNaarDatabase(oef,trainingId);
     draw();
   } else if(geselecteerdPlaatsItem.type==='pion'){
     const bestaandePion = vindPionDichtbij(oef.items, x, y, 1/METER_PER_PX);
@@ -4320,10 +4353,12 @@ function handleVeldKlik(event, trainingId, oefId){
       }
       laatsteGeplaatstePionId = nieuwId;
     }
+    syncOefeningNaarDatabase(oef,trainingId);
     draw();
   } else {
     saveUndoState();
     oef.items.push({type:geselecteerdPlaatsItem.type,groot:geselecteerdPlaatsItem.groot,kleur:geselecteerdPlaatsItem.kleur,x,y});
+    syncOefeningNaarDatabase(oef,trainingId);
     draw();
   }
 }
@@ -4347,6 +4382,7 @@ function plaatsItem(trainingId, oefId, type, groot, kleur){
 
 function verwijderItem(trainingId, oefId, itemIdx){
   if(!verwijderModus) return;
+  if(blokkeerInArchief()) return;
   saveUndoState();
   const oef = (oefeningen[trainingId]||[]).find(o=>o.id===oefId);
   if(!oef||!oef.items) return;
@@ -4355,13 +4391,54 @@ function verwijderItem(trainingId, oefId, itemIdx){
     oef.verbindingen = oef.verbindingen.filter(v=>v.van!==item.pionId && v.naar!==item.pionId);
   }
   oef.items.splice(itemIdx,1);
+  syncOefeningNaarDatabase(oef, trainingId);
   draw();
 }
 
 function annuleerTraining(trainingId){
+  if(blokkeerInArchief()) return;
   const t = trainingen.find(x=>x.id===trainingId);
   if(!t) return;
   t.geannuleerd = !t.geannuleerd;
+  syncTrainingNaarDatabase(t);
+  draw();
+}
+
+// ---- Nieuwe training toevoegen ----
+const DAGNAMEN = ['Zondag','Maandag','Dinsdag','Woensdag','Donderdag','Vrijdag','Zaterdag'];
+function berekenDagNaam(datumStr){
+  if(!datumStr) return '';
+  const d = new Date(datumStr+'T12:00:00'); // vaste tijd om tijdzone-verschuivingen rond middernacht te vermijden
+  return DAGNAMEN[d.getDay()];
+}
+
+function renderNieuweTraining(){
+  return`<div style="background:#f0fdf4;border:1px solid var(--fcb-groen);border-radius:var(--radius);padding:1rem;margin-bottom:1rem">
+    <div style="font-size:13px;font-weight:600;color:var(--fcb-groen);margin-bottom:.75rem;display:flex;align-items:center;gap:6px"><i class="ti ti-plus" style="font-size:15px"></i> Nieuwe training</div>
+    <div class="form-grid" style="margin-bottom:.75rem">
+      <div><label class="field-label">Datum</label><input type="date" id="nt-datum" class="field-input" onchange="document.getElementById('nt-dag-label').textContent=berekenDagNaam(this.value)"></div>
+      <div><label class="field-label">Tijd</label><input type="text" id="nt-tijd" class="field-input" placeholder="bijv. 20:15-21:45" value="20:15-21:45"></div>
+      <div><label class="field-label">Dag</label><div id="nt-dag-label" class="field-input" style="background:var(--bg);color:var(--text-muted);display:flex;align-items:center">—</div></div>
+    </div>
+    <div style="display:flex;gap:6px;justify-content:flex-end">
+      <button class="btn-outline" style="font-size:12px;padding:5px 12px" onclick="toonNieuweTraining=false;draw()">Annuleren</button>
+      <button class="btn-green" style="font-size:12px;padding:5px 12px" onclick="slaaNieuweTrainingOp()"><i class="ti ti-check" style="font-size:12px"></i> Opslaan</button>
+    </div>
+  </div>`;
+}
+
+function slaaNieuweTrainingOp(){
+  if(blokkeerInArchief()) return;
+  const datum=document.getElementById('nt-datum')?.value;
+  const tijd=document.getElementById('nt-tijd')?.value.trim()||'20:15-21:45';
+  if(!datum) return;
+  const dag=berekenDagNaam(datum);
+  const nieuw={id:nextTrainingId++,datum,dag,tijd,geannuleerd:false,aanwezigheid:{},seizoenId:activeSeizoenId()};
+  trainingen.push(nieuw);
+  trainingen.sort((a,b)=>a.datum.localeCompare(b.datum));
+  syncTrainingNaarDatabase(nieuw);
+  toonNieuweTraining=false;
+  showToast('Training toegevoegd!');
   draw();
 }
 
@@ -4439,6 +4516,10 @@ document.addEventListener('mousemove', function(event){
 document.addEventListener('mouseup', function(){
   if(dragPijl){
     if(dragPijl.moved) saveUndoState();
+    if(dragPijl.moved && dragPijl.oefId!=='nieuw'){
+      const oef = (oefeningen[dragPijl.trainingId]||[]).find(o=>o.id===dragPijl.oefId);
+      if(oef) syncOefeningNaarDatabase(oef, dragPijl.trainingId);
+    }
     dragPijl = null;
     setTimeout(()=>{ controlPointClicked = false; }, 0);
   }
@@ -4471,6 +4552,10 @@ document.addEventListener('touchmove', function(event){
 
 document.addEventListener('touchend', function(){
   if(dragPijl){ 
+    if(dragPijl.oefId!=='nieuw'){
+      const oef = (oefeningen[dragPijl.trainingId]||[]).find(o=>o.id===dragPijl.oefId);
+      if(oef) syncOefeningNaarDatabase(oef, dragPijl.trainingId);
+    }
     dragPijl = null;
     setTimeout(()=>{ controlPointClicked = false; }, 0);
   }
@@ -4479,6 +4564,7 @@ document.addEventListener('touchend', function(){
 // ---- SPELER DRAG ----
 function handleSpelerOpVeldMouseDown(event, trainingId, oefId, veldType, itemIdx){
   event.stopPropagation();
+  if(blokkeerInArchief()) return;
   // Bepaal speler info van data attributes
   const el = event.currentTarget;
   const spelerId = parseInt(el.getAttribute('data-speler-id'));
@@ -4527,6 +4613,7 @@ function startDragSpeler(event, spelerId, teamKleur, naam, init){
 
 function plaatsSpelerOpSVG(clientX, clientY, svgEl){
   if(!dragSpeler||!svgEl) return;
+  if(blokkeerInArchief()){ dragSpeler=null; return; }
   const pt = getSVGPoint({clientX, clientY, touches:null}, svgEl);
   if(!isFinite(pt.x)||!isFinite(pt.y)){dragSpeler=null;return;}
   const isNieuw = svgEl.getAttribute('data-oef')==='nieuw';
@@ -4543,6 +4630,7 @@ function plaatsSpelerOpSVG(clientX, clientY, svgEl){
     if(!oef.items) oef.items=[];
     oef.items = oef.items.filter(i=>!(i.type==='speler'&&i.spelerId===dragSpeler.spelerId));
     oef.items.push(spelerItem);
+    syncOefeningNaarDatabase(oef, trainingId);
   }
   dragSpeler = null;
   const ghost = document.getElementById('speler-ghost');
@@ -4594,8 +4682,12 @@ document.addEventListener('touchend', function(e){
 });
 
 function verwijderItemVeld(trainingId, oefId, itemIdx){
+  if(blokkeerInArchief()) return;
   const oef = (oefeningen[trainingId]||[]).find(o=>o.id===oefId);
-  if(oef&&oef.items) oef.items.splice(itemIdx,1);
+  if(oef&&oef.items){
+    oef.items.splice(itemIdx,1);
+    syncOefeningNaarDatabase(oef, trainingId);
+  }
   draw();
 }
 
@@ -4603,14 +4695,15 @@ function verwijderItemVeld(trainingId, oefId, itemIdx){
 draw(); // teken direct met de ingebouwde standaardlijst, zodat het scherm niet leeg is
 laadInstellingenUitDatabase(); // clubnaam en logo (onafhankelijk van seizoenen)
 
-// Volgorde is belangrijk: eerst het actieve seizoen weten, dan pas spelers verrijken, dan wedstrijden filteren
+// Volgorde is belangrijk: eerst het actieve seizoen weten, dan pas spelers verrijken, dan wedstrijden/trainingen filteren
 laadSeizoenenUitDatabase()
   .then(()=>laadSpelersUitDatabase())
   .then(dbWasLeeg=>{
     // Als de tabel nog leeg was (nieuw Supabase-project), vullen we hem eenmalig
     if(dbWasLeeg) return eenmaligeSeedNaarDatabase().then(laadSpelersUitDatabase);
   })
-  .then(()=>laadWedstrijdenUitDatabase());
+  .then(()=>laadWedstrijdenUitDatabase())
+  .then(()=>laadTrainingenUitDatabase());
 </script>
 </body>
 </html>
