@@ -175,10 +175,8 @@ body{font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
   .stat-box{padding:12px 10px}
   .stat-val{font-size:22px}
   .stat-lbl{font-size:11px;margin-top:2px}
-  .match-row{grid-template-columns:1fr auto;grid-template-rows:auto auto;gap:2px 8px;padding:10px 12px}
-  .match-row .match-date{grid-column:1/2;grid-row:1;font-size:11px;order:-1}
-  .match-row .match-info{grid-column:1/2;grid-row:2}
-  .match-row .match-chevron{grid-column:2;grid-row:1/3;align-self:center}
+  .match-row{grid-template-columns:56px 1fr auto;gap:8px;padding:10px 12px}
+  .match-row .match-info>div:first-child{font-size:13px}
 }
 .stat-box{background:var(--white);border-radius:12px;padding:16px 14px;text-align:center;position:relative;overflow:hidden;box-shadow:var(--shadow-card)}
 .stat-box::before{content:'';position:absolute;top:0;left:0;right:0;height:3px;background:var(--fcb-groen);opacity:0}
@@ -1021,6 +1019,7 @@ function draw(){
   else if(page==='dashboard') html+=renderDashboard();
   else if(page==='spelers')   html+=activeSpelerId?renderSpelerDetail():renderSpelers();
   else if(page==='wedstrijden') html+=activeWedstrijdId?renderWedstrijdDetail():renderWedstrijden();
+  else if(page==='statistieken') html+=renderWedstrijdStatistieken();
   else if(page==='ontwikkeling') html+=renderOntwikkeling();
   else if(page==='rollen')    html+=renderRollen();
   else if(page==='trainingen') html+=renderTrainingen();
@@ -1595,28 +1594,60 @@ function toggleSkillVis(spelerId,cat){
 
 // ---- WEDSTRIJDEN ----
 function renderWedstrijden(){
+  const gepland = wedstrijden.filter(w=>w.status!=='gespeeld').slice().sort((a,b)=>a.datum.localeCompare(b.datum));
+  const rows=gepland.map(w=>`
+    <div class="match-row" onclick="activeWedstrijdId=${w.id};wedstrijdTab='opstelling';draw()">
+      <div style="font-size:12px;color:var(--text-muted);margin-bottom:4px">${fmtDate(w.datum)}${w.tijd?' · '+w.tijd:''}</div>
+      <div style="font-size:14px;font-weight:600;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <span style="flex:1;min-width:0">FC Binnenmaas 1
+          <span class="score ${scClass(w)}">${w.status==='live'?`<span class="live-badge"><i class="ti ti-circle-filled" style="font-size:8px"></i> LIVE</span> ${w.score.e}-${w.score.t}`:w.score?`${w.score.e}-${w.score.t}`:'–'}</span>
+          ${w.teg}
+        </span>
+        <i class="ti ti-chevron-right" style="color:var(--text-muted);flex-shrink:0"></i>
+      </div>
+      <div style="font-size:12px;color:var(--text-muted);margin-top:5px;display:flex;gap:6px;flex-wrap:wrap">
+        <span class="${w.thuis?'badge-thuis':'badge-uit'}">${w.thuis?'Thuis':'Uit'}</span>
+        <span class="type-badge">${w.type}</span>
+      </div>
+    </div>`).join('');
+  return`
+    <div class="card">
+      <div class="card-hdr" style="flex-wrap:wrap;gap:8px">
+        <div class="card-title"><div class="gdot"></div>Geplande wedstrijden (${gepland.length})</div>
+        <div style="display:flex;gap:6px;margin-left:auto">
+          <button class="btn-outline" style="font-size:12px;padding:6px 12px" onclick="setPage('statistieken')"><i class="ti ti-chart-bar" style="font-size:13px"></i> Statistieken</button>
+          <button class="btn-green" style="font-size:12px;padding:6px 12px" onclick="toonNieuweWedstrijd=!toonNieuweWedstrijd;draw()"><i class="ti ti-plus" style="font-size:13px"></i> Toevoegen</button>
+        </div>
+      </div>
+      ${toonNieuweWedstrijd?renderNieuweWedstrijd():''}
+      ${rows || '<div style="font-size:13px;color:var(--text-light);padding:8px 4px">Geen geplande wedstrijden</div>'}
+    </div>`;
+}
+
+function renderWedstrijdStatistieken(){
   const gs=wedstrijden.filter(w=>w.status==='gespeeld');
   const w=gs.filter(w=>w.score&&w.score.e>w.score.t).length;
   const g=gs.filter(w=>w.score&&w.score.e===w.score.t).length;
   const v=gs.filter(w=>w.score&&w.score.e<w.score.t).length;
   const df=gs.reduce((s,w)=>s+(w.score?w.score.e-w.score.t:0),0);
-  const rows=wedstrijden.map(w=>`
+  const gespeeld = gs.slice().sort((a,b)=>b.datum.localeCompare(a.datum));
+  const rows=gespeeld.map(w=>`
     <div class="match-row" onclick="activeWedstrijdId=${w.id};wedstrijdTab='opstelling';draw()">
-      <div class="match-date" style="font-size:12px;color:var(--text-muted)">${fmtDate(w.datum)}</div>
-      <div class="match-info">
-        <div style="font-size:14px;font-weight:600;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-          FC Binnenmaas 1
-          <span class="score ${scClass(w)}">${w.status==='live'?`<span class="live-badge"><i class="ti ti-circle-filled" style="font-size:8px"></i> LIVE</span> ${w.score.e}-${w.score.t}`:w.score?`${w.score.e}-${w.score.t}`:'–'}</span>
+      <div style="font-size:12px;color:var(--text-muted);margin-bottom:4px">${fmtDate(w.datum)}</div>
+      <div style="font-size:14px;font-weight:600;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <span style="flex:1;min-width:0">FC Binnenmaas 1
+          <span class="score ${scClass(w)}">${w.score?`${w.score.e}-${w.score.t}`:'–'}</span>
           ${w.teg}
-        </div>
-        <div style="font-size:12px;color:var(--text-muted);margin-top:3px;display:flex;gap:6px;flex-wrap:wrap">
-          <span class="${w.thuis?'badge-thuis':'badge-uit'}">${w.thuis?'Thuis':'Uit'}</span>
-          <span class="type-badge">${w.type}</span>
-        </div>
+        </span>
+        <i class="ti ti-chevron-right" style="color:var(--text-muted);flex-shrink:0"></i>
       </div>
-      <i class="ti ti-chevron-right match-chevron" style="color:var(--text-muted)"></i>
+      <div style="font-size:12px;color:var(--text-muted);margin-top:5px;display:flex;gap:6px;flex-wrap:wrap">
+        <span class="${w.thuis?'badge-thuis':'badge-uit'}">${w.thuis?'Thuis':'Uit'}</span>
+        <span class="type-badge">${w.type}</span>
+      </div>
     </div>`).join('');
   return`
+    <button class="back-btn" onclick="setPage('wedstrijden')"><i class="ti ti-arrow-left" style="font-size:14px"></i> Terug naar wedstrijden</button>
     <div class="stats-row">
       <div class="stat-box"><div class="stat-val" style="color:var(--fcb-groen)">${w}</div><div class="stat-lbl">Gewonnen</div></div>
       <div class="stat-box"><div class="stat-val">${g}</div><div class="stat-lbl">Gelijk</div></div>
@@ -1624,12 +1655,8 @@ function renderWedstrijden(){
       <div class="stat-box"><div class="stat-val" style="color:${df>=0?'var(--fcb-groen)':'#dc2626'}">${df>0?'+':''}${df}</div><div class="stat-lbl">Doelsaldo</div></div>
     </div>
     <div class="card">
-      <div class="card-hdr" style="flex-wrap:wrap;gap:8px">
-        <div class="card-title"><div class="gdot"></div>Alle wedstrijden (${wedstrijden.length})</div>
-        <button class="btn-green" style="font-size:12px;padding:6px 12px;margin-left:auto" onclick="toonNieuweWedstrijd=!toonNieuweWedstrijd;draw()"><i class="ti ti-plus" style="font-size:13px"></i> Toevoegen</button>
-      </div>
-      ${toonNieuweWedstrijd?renderNieuweWedstrijd():''}
-      ${rows}
+      <div class="card-hdr"><div class="card-title"><div class="gdot"></div>Gespeelde wedstrijden (${gespeeld.length})</div></div>
+      ${rows || '<div style="font-size:13px;color:var(--text-light);padding:8px 4px">Nog geen gespeelde wedstrijden</div>'}
     </div>`;
 }
 
