@@ -123,6 +123,8 @@ body{font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
   /* Veld + zijpaneel / opstelling: stapelen op mobiel */
   .veld-nieuw-grid,.veld-editor-grid,.opstelling-veld-grid{grid-template-columns:1fr !important}
   .opstelling-grid{grid-template-columns:1fr !important;justify-items:center}
+  /* Naam + veldgrootte van een nieuwe oefening: stapelen op mobiel, anders wordt het naamveld te smal */
+  .oef-naam-veld-grid{grid-template-columns:1fr !important}
 }
 .container{width:100%;margin:0 auto;padding:2rem 2.5rem}
 @media (max-width:640px){.container{padding:1rem 1rem}}
@@ -4062,7 +4064,7 @@ function renderNieuweOefeningForm(trainingId, aanwezigen){
   html += '<div style="font-size:13px;font-weight:600;color:var(--fcb-groen);margin-bottom:10px"><i class="ti ti-pencil" style="font-size:15px;margin-right:4px"></i>Nieuwe oefening</div>';
 
   // Naam + veldgrootte naast elkaar
-  html += '<div style="display:grid;grid-template-columns:1fr auto;gap:8px;margin-bottom:10px;align-items:end">';
+  html += '<div class="oef-naam-veld-grid" style="display:grid;grid-template-columns:1fr auto;gap:8px;margin-bottom:10px;align-items:end">';
   html += '<div><label class="field-label">Naam</label><input type="text" id="oef-naam-input" class="field-input" placeholder="bijv. Rondo 4 tegen 2" value="'+(nieuwOefening.naam||'')+'" oninput="nieuwOefening.naam=this.value"></div>';
   html += '<div><label class="field-label">Veldgrootte</label><div style="display:flex;gap:4px">';
   VELD_OPTIES.forEach(v => {
