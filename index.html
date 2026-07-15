@@ -3331,7 +3331,7 @@ function renderTrainingen(){
       const isAfwezig = status!=='aanwezig'&&status!=='Niet geselecteerd';
       const isNietGes = status==='Niet geselecteerd';
       return `
-        <div style="display:flex;align-items:center;gap:10px;padding:10px 12px;
+        <div style="display:flex;align-items:center;gap:10px;padding:9px 10px;
           background:${isNietGes?'#f3f4f6':isAfwezig?'#fef2f2':'#f9f9f9'};
           border-radius:var(--radius);margin-bottom:6px;
           border:1px solid ${isNietGes?'#d1d5db':isAfwezig?'#fca5a5':'var(--border)'};
@@ -3340,25 +3340,26 @@ function renderTrainingen(){
             ?`<img src="${sp.foto}" style="width:32px;height:32px;border-radius:6px;object-fit:cover;flex-shrink:0" alt="">`
             :`<div style="width:32px;height:32px;border-radius:6px;background:${isNietGes?'#e5e7eb':isAfwezig?'#fef2f2':'var(--fcb-groen-licht)'};display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;color:${isNietGes?'#6b7280':isAfwezig?'#dc2626':'var(--fcb-groen)'};flex-shrink:0">${sp.init}</div>`}
           <div style="flex:1;min-width:0">
-            <div style="font-size:13px;font-weight:600">${sp.naam}</div>
+            <div style="font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${sp.naam}</div>
             <div style="font-size:11px;color:var(--text-muted)">${sp.pos}</div>
           </div>
-          ${!isGeannuleerd?`<div style="display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end">
+          ${!isGeannuleerd?`<div style="display:flex;align-items:center;gap:5px;flex-shrink:0">
             <span onclick="setAanwezigheid(${t.id},${sp.id},'aanwezig')"
               title="${status==='aanwezig'?'Klik om uit te vinken':'Klik om aanwezig te zetten'}"
-              style="padding:4px 12px;border-radius:99px;font-size:11px;cursor:pointer;
+              style="width:30px;height:30px;border-radius:50%;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;
                 border:1px solid ${status==='aanwezig'?'var(--fcb-groen)':'var(--border)'};
-                background:${status==='aanwezig'?'var(--fcb-groen)':'var(--white)'};
-                color:${status==='aanwezig'?'white':'var(--text-muted)'}">
-              ${status==='aanwezig'?'✓ Aanwezig':'○ Aanwezig'}
+                background:${status==='aanwezig'?'var(--fcb-groen)':'var(--white)'}">
+              <i class="ti ti-check" style="font-size:15px;color:${status==='aanwezig'?'white':'var(--border)'}"></i>
             </span>
-            ${AFWEZIGHEIDSREDENEN.map(r=>`
-              <span onclick="setAanwezigheid(${t.id},${sp.id},'${r}')"
-                style="padding:4px 12px;border-radius:99px;font-size:11px;cursor:pointer;
-                  border:1px solid ${status===r?'#dc2626':'var(--border)'};
-                  background:${status===r?'#dc2626':'var(--white)'};
-                  color:${status===r?'white':'var(--text-muted)'}">${r}</span>`).join('')}
-          </div>`:`<span style="font-size:11px;color:var(--text-muted);font-style:italic">Geannuleerd</span>`}
+            <select onchange="setAanwezigheid(${t.id},${sp.id},this.value)"
+              style="font-size:11px;padding:5px 6px;border-radius:var(--radius);cursor:pointer;font-family:inherit;
+                border:1px solid ${isAfwezig?'#dc2626':'var(--border)'};
+                background:${isAfwezig?'#fef2f2':'var(--white)'};
+                color:${isAfwezig?'#dc2626':'var(--text-muted)'};width:78px">
+              <option value="aanwezig"${status==='aanwezig'?' selected':''}>Aanwezig</option>
+              ${AFWEZIGHEIDSREDENEN.map(r=>`<option value="${r}"${status===r?' selected':''}>${r}</option>`).join('')}
+            </select>
+          </div>`:`<span style="font-size:11px;color:var(--text-muted);font-style:italic;flex-shrink:0">Geannuleerd</span>`}
         </div>`;
     }).join('');
 
@@ -3406,25 +3407,28 @@ function renderTrainingen(){
 
     return `
       <div class="card">
-        <div class="card-hdr">
-          <div style="display:flex;flex-direction:column;gap:3px">
-            <div class="card-title">
+        <div class="card-hdr" style="flex-wrap:wrap;gap:10px">
+          <div style="display:flex;flex-direction:column;gap:5px;min-width:0">
+            <div class="card-title" style="flex-wrap:wrap;row-gap:5px">
               <div class="gdot" style="${isGeannuleerd?'background:#dc2626':''}"></div>
-              ${t.dag} ${fmtDate(t.datum)} — ${t.tijd}
-              ${isGeannuleerd?`<span style="font-size:10px;background:#fef2f2;color:#dc2626;border:1px solid #fca5a5;padding:2px 8px;border-radius:99px;margin-left:6px">Geannuleerd</span>`:''}
-              ${isToekomst&&!isGeannuleerd?`<span style="font-size:10px;background:#f3f4f6;color:var(--text-muted);padding:2px 8px;border-radius:99px;margin-left:6px">Gepland</span>`:''}
+              <span style="white-space:nowrap">${t.dag} ${fmtDate(t.datum)}</span>
+              <span style="color:var(--text-muted);font-weight:400">${t.tijd}</span>
+            </div>
+            <div style="display:flex;gap:6px;flex-wrap:wrap">
+              ${isGeannuleerd?`<span style="font-size:10px;background:#fef2f2;color:#dc2626;border:1px solid #fca5a5;padding:2px 8px;border-radius:99px">Geannuleerd</span>`:''}
+              ${isToekomst&&!isGeannuleerd?`<span style="font-size:10px;background:#f3f4f6;color:var(--text-muted);padding:2px 8px;border-radius:99px">Gepland</span>`:''}
             </div>
           </div>
-          <div style="display:flex;gap:6px">
-            <button onclick="annuleerTraining(${t.id})" style="font-size:12px;padding:5px 12px;border-radius:var(--radius);
+          <div style="display:flex;gap:6px;flex-shrink:0;margin-left:auto">
+            <button onclick="annuleerTraining(${t.id})" style="font-size:12px;padding:5px 10px;border-radius:var(--radius);
               border:1px solid ${isGeannuleerd?'var(--fcb-groen)':'#fca5a5'};
               background:${isGeannuleerd?'var(--fcb-groen-licht)':'#fef2f2'};
               color:${isGeannuleerd?'#1B5E20':'#dc2626'};
-              cursor:pointer;font-family:inherit;display:inline-flex;align-items:center;gap:4px">
+              cursor:pointer;font-family:inherit;display:inline-flex;align-items:center;gap:4px;white-space:nowrap">
               <i class="ti ti-${isGeannuleerd?'rotate':'ban'}" style="font-size:13px"></i>
               ${isGeannuleerd?'Herplannen':'Annuleren'}
             </button>
-            <button class="btn-outline" style="font-size:12px;padding:5px 12px" onclick="activeTrainingId=null;draw()">
+            <button class="btn-outline" style="font-size:12px;padding:5px 10px;white-space:nowrap" onclick="activeTrainingId=null;draw()">
               <i class="ti ti-arrow-left" style="font-size:12px"></i> Terug
             </button>
           </div>
@@ -3758,16 +3762,16 @@ function verwijderOefening(trainingId, oefId){
 
     return `
       <div class="card">
-        <div class="card-hdr">
-          <div style="font-size:14px;font-weight:600">${oef.naam}
-            <span style="font-size:11px;background:#e0f2fe;color:#0369a1;padding:2px 8px;border-radius:99px;margin-left:6px">${oef.veld} veld</span>
+        <div class="card-hdr" style="flex-wrap:wrap;gap:8px">
+          <div style="font-size:14px;font-weight:600;display:flex;align-items:center;gap:6px;flex-wrap:wrap">${oef.naam}
+            <span style="font-size:11px;background:#e0f2fe;color:#0369a1;padding:2px 8px;border-radius:99px">${oef.veld} veld</span>
           </div>
-          <div style="display:flex;gap:6px">
+          <div style="display:flex;gap:6px;margin-left:auto">
             <button onclick="bewerkModus=false;geselecteerdPlaatsItem=null;pijlStart=null;draw()"
-              class="btn-outline" style="font-size:12px;padding:5px 12px">
+              class="btn-outline" style="font-size:12px;padding:5px 10px;white-space:nowrap">
               <i class="ti ti-check" style="font-size:12px"></i> Klaar
             </button>
-            <button class="btn-outline" style="font-size:12px;padding:5px 12px"
+            <button class="btn-outline" style="font-size:12px;padding:5px 10px;white-space:nowrap"
               onclick="activeOefeningId=null;bewerkModus=false;geselecteerdPlaatsItem=null;pijlStart=null;draw()">
               <i class="ti ti-arrow-left" style="font-size:12px"></i> Terug
             </button>
