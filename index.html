@@ -1854,13 +1854,11 @@ function renderWedstrijdOpstelling(w, bewerkbaar){
       svgNodes+=`<g${bewerkbaar?` style="cursor:pointer" onclick="opstellingKlik(${w.id},${i})"`:''}>
         ${binnen}
         <text x="${cx}" y="${cy+20}" text-anchor="middle" fill="white" font-size="8" font-family="system-ui" opacity=".9">${achternaam(sp.naam)}</text>
-        <text x="${cx}" y="${cy-18}" text-anchor="middle" fill="rgba(255,255,255,.65)" font-size="7.5" font-family="system-ui">${f.labels[i]}</text>
       </g>`;
     } else {
       svgNodes+=`<g${bewerkbaar?` style="cursor:pointer" onclick="opstellingKlik(${w.id},${i})"`:''}>
         <circle cx="${cx}" cy="${cy}" r="13" fill="rgba(255,255,255,.12)" stroke="rgba(255,255,255,.6)" stroke-width="1.5" stroke-dasharray="3 2"/>
         ${bewerkbaar?`<text x="${cx}" y="${cy+1}" text-anchor="middle" dominant-baseline="middle" fill="white" font-size="14" font-weight="400" font-family="system-ui">+</text>`:''}
-        <text x="${cx}" y="${cy-18}" text-anchor="middle" fill="rgba(255,255,255,.65)" font-size="7.5" font-family="system-ui">${f.labels[i]}</text>
       </g>`;
     }
   });
@@ -1918,7 +1916,6 @@ function renderWedstrijdOpstelling(w, bewerkbaar){
       return `<div style="display:flex;align-items:center;gap:8px;padding:6px 10px;background:var(--bg);border-radius:8px;margin-bottom:5px">
         <div style="width:26px;height:26px;border-radius:50%;background:${i===0?'#D4A017':'var(--fcb-groen)'};color:white;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:600">${sp?sp.nr||'':''}</div>
         <span style="font-size:13px;flex:1">${sp?sp.naam:'<span style=\'color:var(--text-light)\'>—</span>'}</span>
-        <span style="font-size:11px;color:var(--text-muted);background:#f3f4f6;padding:1px 7px;border-radius:99px">${lbl}</span>
       </div>`;
     }).join('');
     const bank=(w.wisselBank||[]).map(id=>{
