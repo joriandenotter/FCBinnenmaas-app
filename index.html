@@ -271,6 +271,7 @@ body{font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
 
 /* Toast */
 .toast{background:var(--fcb-groen-licht);border:1px solid #b8e0bb;border-radius:10px;padding:11px 15px;font-size:13px;font-weight:500;color:#1B5E20;display:flex;align-items:center;gap:8px;margin-bottom:1rem;box-shadow:var(--shadow-sm)}
+.toast-fout{background:#fef2f2;border-color:#fca5a5;color:#991b1b}
 
 /* Divider */
 .divider{border:none;border-top:1px solid var(--border);margin:1rem 0}
@@ -457,7 +458,7 @@ let spelerSeizoenen = []; // ruwe koppelingen speler<->seizoen, zoals opgehaald 
 
 async function laadSpelersUitDatabase(){
   const { data, error } = await db.from('spelers').select('*').order('id');
-  if(error){ console.error('Fout bij laden spelers:', error.message||error, error); showToast('Kon spelers niet laden: '+(error.message||'onbekende fout')); return false; }
+  if(error){ console.error('Fout bij laden spelers:', error.message||error, error); showToast('Kon spelers niet laden: '+(error.message||'onbekende fout'), 'fout'); return false; }
   const dbWasLeeg = !data || data.length===0;
   if(!dbWasLeeg){
     spelers = data.map(rijNaarSpeler);
@@ -471,7 +472,7 @@ async function laadSpelersUitDatabase(){
 
 async function syncSpelerNaarDatabase(sp){
   const { error } = await db.from('spelers').upsert(spelerNaarRij(sp));
-  if(error){ console.error('Fout bij opslaan speler:', error.message||error, error); showToast('Opslaan mislukt: '+(error.message||'controleer verbinding')); }
+  if(error){ console.error('Fout bij opslaan speler:', error.message||error, error); showToast('Opslaan mislukt: '+(error.message||'controleer verbinding'), 'fout'); }
 }
 
 async function laadSpelerSeizoenenUitDatabase(){
@@ -486,7 +487,7 @@ async function laadSpelerSeizoenenUitDatabase(){
 async function syncSpelerSeizoenNaarDatabase(sp){
   const rij = spelerSeizoenNaarRij(sp);
   const { data, error } = await db.from('speler_seizoenen').upsert(rij, {onConflict:'speler_id,seizoen_id'}).select().maybeSingle();
-  if(error){ console.error('Fout bij opslaan speler-seizoen:', error.message||error, error); showToast('Opslaan mislukt: '+(error.message||'controleer verbinding')); return; }
+  if(error){ console.error('Fout bij opslaan speler-seizoen:', error.message||error, error); showToast('Opslaan mislukt: '+(error.message||'controleer verbinding'), 'fout'); return; }
   if(data) sp.speelSeizoenKoppelingId = data.id; // onthoud het echte id, ook als dit een nieuwe koppeling was
 }
 
@@ -501,7 +502,7 @@ function rijNaarSeizoen(r){
 }
 async function laadSeizoenenUitDatabase(){
   const { data, error } = await db.from('seizoenen').select('*').order('id');
-  if(error){ console.error('Fout bij laden seizoenen:', error.message||error, error); showToast('Kon seizoenen niet laden: '+(error.message||'onbekende fout')); return; }
+  if(error){ console.error('Fout bij laden seizoenen:', error.message||error, error); showToast('Kon seizoenen niet laden: '+(error.message||'onbekende fout'), 'fout'); return; }
   if(data && data.length){
     seizoenen = data.map(rijNaarSeizoen);
     nextSeizoenId = Math.max(...seizoenen.map(s=>s.id), 0) + 1;
@@ -511,16 +512,16 @@ async function laadSeizoenenUitDatabase(){
 }
 async function syncSeizoenNaarDatabase(s){
   const { error } = await db.from('seizoenen').upsert(seizoenNaarRij(s));
-  if(error){ console.error('Fout bij opslaan seizoen:', error.message||error, error); showToast('Opslaan seizoen mislukt: '+(error.message||'controleer verbinding')); }
+  if(error){ console.error('Fout bij opslaan seizoen:', error.message||error, error); showToast('Opslaan seizoen mislukt: '+(error.message||'controleer verbinding'), 'fout'); }
 }
 async function verwijderSeizoenUitDatabase(id){
   const { error } = await db.from('seizoenen').delete().eq('id', id);
-  if(error){ console.error('Fout bij verwijderen seizoen:', error.message||error, error); showToast('Verwijderen mislukt'); }
+  if(error){ console.error('Fout bij verwijderen seizoen:', error.message||error, error); showToast('Verwijderen mislukt', 'fout'); }
 }
 
 async function verwijderSpelerUitDatabase(id){
   const { error } = await db.from('spelers').delete().eq('id', id);
-  if(error){ console.error('Fout bij verwijderen speler:', error); showToast('Verwijderen mislukt'); }
+  if(error){ console.error('Fout bij verwijderen speler:', error); showToast('Verwijderen mislukt', 'fout'); }
 }
 
 async function eenmaligeSeedNaarDatabase(){
@@ -571,7 +572,7 @@ async function laadWedstrijdenVoorSeizoen(seizoenId){
   let query = db.from('wedstrijden').select('*').order('id');
   if(seizoenId) query = query.eq('seizoen_id', seizoenId);
   const { data, error } = await query;
-  if(error){ console.error('Fout bij laden wedstrijden:', error.message||error, error); showToast('Kon wedstrijden niet laden: '+(error.message||'onbekende fout')); return; }
+  if(error){ console.error('Fout bij laden wedstrijden:', error.message||error, error); showToast('Kon wedstrijden niet laden: '+(error.message||'onbekende fout'), 'fout'); return; }
   wedstrijden = (data||[]).map(rijNaarWedstrijd);
   nextWedstrijdId = Math.max(...wedstrijden.map(w=>w.id), 0) + 1;
   draw();
@@ -594,13 +595,13 @@ function syncWedstrijdNaarDatabase(w){
     const rijen = ids.map(id=>wedstrijdNaarRij(wedstrijden.find(x=>x.id===id))).filter(Boolean);
     if(!rijen.length) return;
     const { error } = await db.from('wedstrijden').upsert(rijen);
-    if(error){ console.error('Fout bij opslaan wedstrijd:', error.message||error, error); showToast('Opslaan wedstrijd mislukt: '+(error.message||'controleer verbinding')); }
+    if(error){ console.error('Fout bij opslaan wedstrijd:', error.message||error, error); showToast('Opslaan wedstrijd mislukt: '+(error.message||'controleer verbinding'), 'fout'); }
   }, 400);
 }
 
 async function verwijderWedstrijdUitDatabase(id){
   const { error } = await db.from('wedstrijden').delete().eq('id', id);
-  if(error){ console.error('Fout bij verwijderen wedstrijd:', error); showToast('Verwijderen wedstrijd mislukt'); }
+  if(error){ console.error('Fout bij verwijderen wedstrijd:', error); showToast('Verwijderen wedstrijd mislukt', 'fout'); }
 }
 
 // ============================================================
@@ -621,7 +622,7 @@ async function laadInstellingenUitDatabase(){
 
 async function syncInstellingenNaarDatabase(){
   const { error } = await db.from('instellingen').update({ club_naam: clubNaam, club_logo: clubLogo }).eq('id',1);
-  if(error){ console.error('Fout bij opslaan instellingen:', error.message||error, error); showToast('Opslaan mislukt: '+(error.message||'controleer verbinding')); }
+  if(error){ console.error('Fout bij opslaan instellingen:', error.message||error, error); showToast('Opslaan mislukt: '+(error.message||'controleer verbinding'), 'fout'); }
 }
 
 // Zet het logo (indien aanwezig) in de UI-elementen; wordt aangeroepen na laden en na wijzigen
@@ -718,7 +719,7 @@ function isArchiefModus(){ return bekijkSeizoenId!==null && bekijkSeizoenId!==ac
 // als we in read-only archiefmodus zitten, zodat de aanroepende functie meteen kan stoppen.
 function blokkeerInArchief(){
   if(isArchiefModus()){
-    showToast('Dit seizoen is alleen-lezen (archief)');
+    showToast('Dit seizoen is alleen-lezen (archief)', 'fout');
     draw();
     return true;
   }
@@ -767,7 +768,12 @@ function activeSeizoen(){return seizoenen.find(s=>s.actief);}
 function activeSeizoenId(){return activeSeizoen()?.id ?? null;}
 // Spelers die daadwerkelijk gekoppeld zijn aan het momenteel bekeken seizoen (dus zichtbaar horen te zijn in lijsten/selecties)
 function spelersInActiefSeizoen(){ return spelers.filter(s=>s.doetMeeDitSeizoen); }
-function showToast(msg){toast=msg;draw();setTimeout(()=>{toast=null;draw();},3000);}
+function showToast(msg, type){
+  toast={msg, type:type||'succes'};
+  draw();
+  const duur = (type==='fout') ? 6000 : 3000;
+  setTimeout(()=>{ toast=null; draw(); }, duur);
+}
 
 // Klok
 function klokSeconds(){
@@ -900,7 +906,10 @@ function draw(){
   if(opmEl) nieuwOefening.opmerking = opmEl.value;
   const el=document.getElementById('pageContent');
   let html='';
-  if(toast) html+=`<div class="toast"><i class="ti ti-circle-check" style="font-size:16px"></i>${toast}</div>`;
+  if(toast){
+    const isFout = toast.type==='fout';
+    html+=`<div class="toast${isFout?' toast-fout':''}"><i class="ti ${isFout?'ti-alert-circle':'ti-circle-check'}" style="font-size:16px"></i>${toast.msg}</div>`;
+  }
   if(isArchiefModus()){
     const bekekenSeizoen=seizoenen.find(s=>s.id===bekijkSeizoenId);
     html+=`<div style="background:#fef3c7;border:1px solid #d97706;color:#92400e;border-radius:var(--radius);padding:10px 14px;margin-bottom:1rem;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
@@ -1910,7 +1919,7 @@ function laadAfbeelding(src){
 async function genereerWedstrijdAfbeelding(wedstrijdId){
   const w=ensureWedstrijdVelden(wedstrijden.find(x=>x.id===wedstrijdId));
   const basisIds=Object.values(w.opstellingPos).filter(Boolean).map(Number);
-  if(basisIds.length===0){ showToast('Stel eerst een opstelling samen'); return; }
+  if(basisIds.length===0){ showToast('Stel eerst een opstelling samen', 'fout'); return; }
   showToast('Afbeelding genereren…');
 
   // Spelers ophalen + sorteren op rugnummer
@@ -2106,7 +2115,7 @@ function startWedstrijd(wedstrijdId){
   // Controleer of er een basiself is
   const aantalOpgesteld = Object.values(w.opstellingPos).filter(Boolean).length;
   if(aantalOpgesteld===0){
-    showToast('Stel eerst een opstelling samen');
+    showToast('Stel eerst een opstelling samen', 'fout');
     wedstrijdTab='opstelling';
     draw();
     return;
@@ -2727,7 +2736,7 @@ async function bevestigSpelerskeuzeVoorSeizoen(){
   const teVerwijderen = bestaandeKoppelingen.filter(ss=>!gekozenIds.has(ss.speler_id));
   for(const ss of teVerwijderen){
     const { error } = await db.from('speler_seizoenen').delete().eq('id', ss.id);
-    if(error){ console.error('Fout bij verwijderen speler-seizoen koppeling:', error.message||error, error); showToast('Verwijderen mislukt: '+(error.message||'controleer verbinding')); return; }
+    if(error){ console.error('Fout bij verwijderen speler-seizoen koppeling:', error.message||error, error); showToast('Verwijderen mislukt: '+(error.message||'controleer verbinding'), 'fout'); return; }
   }
   spelerSeizoenen = spelerSeizoenen.filter(ss=>!teVerwijderen.includes(ss));
 
@@ -2744,7 +2753,7 @@ async function bevestigSpelerskeuzeVoorSeizoen(){
       };
     });
     const { data, error } = await db.from('speler_seizoenen').insert(rijen).select();
-    if(error){ console.error('Fout bij aanmaken speler-seizoen koppelingen:', error.message||error, error); showToast('Opslaan mislukt: '+(error.message||'controleer verbinding')); return; }
+    if(error){ console.error('Fout bij aanmaken speler-seizoen koppelingen:', error.message||error, error); showToast('Opslaan mislukt: '+(error.message||'controleer verbinding'), 'fout'); return; }
     spelerSeizoenen.push(...(data||[]));
   }
 
