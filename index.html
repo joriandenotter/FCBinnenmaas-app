@@ -928,6 +928,7 @@ function draw(){
   if(typeof renderOpstellingKiezer==='function' && opstellingKiezer) html+=renderOpstellingKiezer();
   if(typeof renderLiveActie==='function' && liveActie) html+=renderLiveActie();
   if(spelerskeuzeSeizoenId) html+=renderSpelerskeuzeVoorSeizoen();
+  if(verwijderSeizoenId) html+=renderVerwijderSeizoenDialoog();
   el.innerHTML=html;
   // Fix stroke-dasharray via DOM na innerHTML (innerHTML parse respecteert geen SVG namespace attrs)
   document.querySelectorAll('g[data-streep="1"] path[stroke="white"]').forEach(p => {
@@ -2607,7 +2608,7 @@ function renderBeheer(){
       <button class="icon-btn" onclick="bekijkArchiefSeizoen(${s.id})" title="Bekijk dit seizoen"><i class="ti ti-eye"></i></button>
       <button class="icon-btn" onclick="openSpelerskeuzeVoorSeizoen(${s.id});closeBeheer()" title="Spelers voor dit seizoen"><i class="ti ti-users"></i></button>
       ${!s.actief?`<button class="icon-btn" onclick="activeerSeizoen(${s.id})" title="Activeer"><i class="ti ti-player-play"></i></button>`:`<button class="icon-btn" style="opacity:.3"><i class="ti ti-check"></i></button>`}
-      <button class="icon-btn danger" onclick="verwijderSeizoen(${s.id})" title="Verwijder"><i class="ti ti-trash"></i></button>
+      <button class="icon-btn danger" onclick="vraagVerwijderSeizoenBevestiging(${s.id})" title="Verwijder"><i class="ti ti-trash"></i></button>
     </div>`).join('')}
     <hr class="divider">
     <div style="display:flex;gap:8px">
@@ -2764,11 +2765,72 @@ async function bevestigSpelerskeuzeVoorSeizoen(){
   draw();
 }
 
-function verwijderSeizoen(id){
+// ---- Seizoen verwijderen: eerst impact tonen en laten bevestigen ----
+let verwijderSeizoenId=null;
+let verwijderSeizoenImpact=null; // {aantalSpelers, aantalWedstrijden} - live opgehaald, niet afhankelijk van wat toevallig al geladen is
+
+async function vraagVerwijderSeizoenBevestiging(id){
   const s=seizoenen.find(x=>x.id===id);
-  if(s.actief) return;
+  if(!s) return;
+  if(s.actief){ showToast('Je kunt het actieve seizoen niet verwijderen', 'fout'); return; }
+  verwijderSeizoenId=id;
+  verwijderSeizoenImpact=null; // toon eerst 'laden...' terwijl de echte aantallen worden opgehaald
+  draw();
+  const [{ count: aantalSpelers }, { count: aantalWedstrijden }] = await Promise.all([
+    db.from('speler_seizoenen').select('*', {count:'exact', head:true}).eq('seizoen_id', id),
+    db.from('wedstrijden').select('*', {count:'exact', head:true}).eq('seizoen_id', id)
+  ]);
+  if(verwijderSeizoenId===id){ // alleen bijwerken als de dialoog nog voor hetzelfde seizoen open staat
+    verwijderSeizoenImpact = { aantalSpelers: aantalSpelers??0, aantalWedstrijden: aantalWedstrijden??0 };
+    draw();
+  }
+}
+function sluitVerwijderSeizoenDialoog(){ verwijderSeizoenId=null; verwijderSeizoenImpact=null; draw(); }
+
+function renderVerwijderSeizoenDialoog(){
+  if(!verwijderSeizoenId) return '';
+  const s=seizoenen.find(x=>x.id===verwijderSeizoenId);
+  if(!s) return '';
+  const laden = verwijderSeizoenImpact===null;
+  const aantalSpelers = laden ? '…' : verwijderSeizoenImpact.aantalSpelers;
+  const aantalWedstrijden = laden ? '…' : verwijderSeizoenImpact.aantalWedstrijden;
+
+  return`<div style="position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;z-index:200;padding:1rem">
+    <div style="background:var(--white);border-radius:var(--radius-lg);padding:1.25rem;width:100%;max-width:420px">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+        <i class="ti ti-alert-triangle" style="font-size:20px;color:#dc2626"></i>
+        <div style="font-size:15px;font-weight:700">Seizoen ${s.naam} verwijderen?</div>
+      </div>
+      <div style="font-size:13px;color:var(--text-muted);margin-bottom:1rem;line-height:1.5">
+        Dit kan niet ongedaan gemaakt worden. Het volgende wordt verwijderd of raakt losgekoppeld:
+      </div>
+      <div style="background:#fef2f2;border:1px solid #fca5a5;border-radius:var(--radius);padding:10px 12px;margin-bottom:1rem;font-size:13px;color:#991b1b">
+        <div style="display:flex;justify-content:space-between;padding:3px 0"><span>Speler-koppelingen (rugnummer, statistieken, blessures)</span><strong>${aantalSpelers}</strong></div>
+        <div style="display:flex;justify-content:space-between;padding:3px 0"><span>Wedstrijden</span><strong>${aantalWedstrijden}</strong></div>
+      </div>
+      <div style="font-size:12px;color:var(--text-muted);margin-bottom:1rem">
+        De spelers zelf (naam, foto) blijven bestaan — alleen hun gegevens specifiek voor dit seizoen gaan verloren. Wedstrijden van dit seizoen blijven in de database staan maar zijn niet meer aan een seizoen gekoppeld.
+      </div>
+      <div style="display:flex;gap:6px;justify-content:flex-end">
+        <button class="btn-outline" style="font-size:12px;padding:6px 14px" onclick="sluitVerwijderSeizoenDialoog()">Annuleren</button>
+        <button class="btn-danger" style="font-size:12px;padding:6px 14px" ${laden?'disabled':''} onclick="bevestigVerwijderSeizoen()"><i class="ti ti-trash" style="font-size:12px"></i> Definitief verwijderen</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+function bevestigVerwijderSeizoen(){
+  const id=verwijderSeizoenId;
+  const s=seizoenen.find(x=>x.id===id);
+  if(!s){ verwijderSeizoenId=null; verwijderSeizoenImpact=null; draw(); return; }
   seizoenen.splice(seizoenen.indexOf(s),1);
+  spelerSeizoenen = spelerSeizoenen.filter(ss=>ss.seizoen_id!==id); // lokaal ook opschonen (database ruimt dit vanzelf op via cascade)
   verwijderSeizoenUitDatabase(id);
+  verwijderSeizoenId=null;
+  verwijderSeizoenImpact=null;
+  // Als je toevallig dit seizoen aan het bekijken (archief) was: terug naar het echte actieve seizoen
+  if(bekijkSeizoenId===id) verlaatArchiefModus();
+  showToast(`Seizoen ${s.naam} verwijderd`);
   draw();
 }
 
