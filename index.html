@@ -300,6 +300,11 @@ body{font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
 /* Wedstrijd events */
 .event-row{display:flex;align-items:center;gap:10px;padding:10px 13px;background:var(--bg);border-radius:10px;font-size:13px;margin-bottom:6px}
 .event-min{font-size:12px;font-weight:600;color:var(--text-muted);width:42px;flex-shrink:0;font-variant-numeric:tabular-nums}
+@media print{
+  body:not(.pdf-export-actief) *{display:none !important}
+  body.pdf-export-actief #pdf-export-container{display:block !important}
+  body.pdf-export-actief *:not(#pdf-export-container):not(#pdf-export-container *){display:none !important}
+}
 </style>
 </head>
 <body>
@@ -369,6 +374,7 @@ body{font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
     </header>
 
     <div id="pageContent"></div>
+    <div id="pdf-export-container" style="display:none"></div>
   </main>
 
   <!-- Mobiele tab-bar onderaan -->
@@ -1180,17 +1186,15 @@ function renderDashboard(){
   const df=gs.reduce((s,w)=>s+(w.score?w.score.e-w.score.t:0),0);
   const rows=wedstrijden.slice(0,3).map(w=>`
     <div class="match-row" onclick="activeWedstrijdId=${w.id};setPage('wedstrijden',true)">
-      <div style="font-size:12px;color:var(--text-muted)">${fmtDate(w.datum)}</div>
-      <div>
-        <div style="font-size:14px;font-weight:600;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-          FC Binnenmaas 1 <span class="score ${scClass(w)}">${w.score?`${w.score.e}-${w.score.t}`:w.status==='live'?'LIVE':'–'}</span> ${w.teg}
-        </div>
-        <div style="font-size:12px;color:var(--text-muted);margin-top:3px;display:flex;gap:6px;flex-wrap:wrap">
-          <span class="${w.thuis?'badge-thuis':'badge-uit'}">${w.thuis?'Thuis':'Uit'}</span>
-          <span class="type-badge">${w.type}</span>
-        </div>
+      <div style="font-size:12px;color:var(--text-muted);margin-bottom:4px">${fmtDate(w.datum)}</div>
+      <div style="font-size:14px;font-weight:600;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <span style="flex:1;min-width:0">FC Binnenmaas 1 <span class="score ${scClass(w)}">${w.score?`${w.score.e}-${w.score.t}`:w.status==='live'?'LIVE':'–'}</span> ${w.teg}</span>
+        <i class="ti ti-chevron-right" style="color:var(--text-muted);flex-shrink:0"></i>
       </div>
-      <i class="ti ti-chevron-right" style="color:var(--text-muted)"></i>
+      <div style="font-size:12px;color:var(--text-muted);margin-top:5px;display:flex;gap:6px;flex-wrap:wrap">
+        <span class="${w.thuis?'badge-thuis':'badge-uit'}">${w.thuis?'Thuis':'Uit'}</span>
+        <span class="type-badge">${w.type}</span>
+      </div>
     </div>`).join('');
   // Top 5 statistieken (alleen spelers, type team, die dit seizoen meedoen)
   const teamSpelers = spelersInActiefSeizoen().filter(s=>s.type==='team');
@@ -3457,6 +3461,9 @@ function renderTrainingen(){
             </div>
           </div>
           <div style="display:flex;gap:6px;flex-shrink:0;margin-left:auto">
+            <button class="btn-outline" style="font-size:12px;padding:5px 10px;white-space:nowrap" onclick="exporteerTrainingPDF(${t.id})">
+              <i class="ti ti-file-download" style="font-size:13px"></i> PDF
+            </button>
             <button onclick="annuleerTraining(${t.id})" style="font-size:12px;padding:5px 10px;border-radius:var(--radius);
               border:1px solid ${isGeannuleerd?'var(--fcb-groen)':'#fca5a5'};
               background:${isGeannuleerd?'var(--fcb-groen-licht)':'#fef2f2'};
@@ -3531,7 +3538,112 @@ function verwijderOefening(trainingId, oefId){
     if(oef) verwijderOefeningUitDatabase(oef);
     draw();
   }
-}function renderVoorbereidingInhoud(trainingId){
+}
+
+// Rendert de items (pionnen/pijlen/spelers/doelen/nummers) van een oefening als SVG,
+// puur ter weergave (geen klik/sleep-interactie) -- herbruikt voor zowel de normale
+// weergave als de PDF-export, zodat beide altijd exact hetzelfde tonen.
+function renderOefeningItemsStatisch(items){
+  return (items||[]).map(item=>{
+    if(item.type==='speler'){
+      const voornaam=(item.naam||'').split(' ')[0];
+      const pw=voornaam.length*5.5+12, ph=14;
+      return `<g><rect x="${item.x-pw/2}" y="${item.y-ph/2}" width="${pw}" height="${ph}" rx="${ph/2}" fill="${item.teamKleur}"/>
+        <text x="${item.x-4}" y="${item.y+1}" text-anchor="middle" dominant-baseline="middle" fill="white" font-size="8" font-weight="700" font-family="system-ui">${voornaam}</text></g>`;
+    } else if(item.type==='pion'){
+      const r=item.groot?9:5, rg=item.groot?4:2;
+      return `<g><circle cx="${item.x}" cy="${item.y}" r="${r}" fill="${item.kleur}"/><circle cx="${item.x}" cy="${item.y}" r="${rg}" fill="white"/></g>`;
+    } else if(item.type==='pijl'||item.type==='pijl_streep'){
+      const ex=item.ex||item.x+40, ey=item.ey||item.y-20;
+      const cx=item.cx!==undefined?item.cx:(item.x+ex)/2, cy=item.cy!==undefined?item.cy:(item.y+ey)/2;
+      const mid='arr_'+Math.random().toString(36).slice(2);
+      return `<g><defs><marker id="${mid}" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto"><polygon points="0,0 6,3 0,6" fill="white"/></marker></defs>
+        <path d="M ${item.x} ${item.y} Q ${cx} ${cy} ${ex} ${ey}" fill="none" stroke="white" stroke-width="2" marker-end="url(#${mid})"/></g>`;
+    } else if(item.type==='nummer'){
+      return `<g><circle cx="${item.x}" cy="${item.y}" r="9" fill="rgba(0,0,0,0.5)" stroke="white" stroke-width="1"/>
+        <text x="${item.x}" y="${item.y+1}" text-anchor="middle" dominant-baseline="middle" fill="white" font-size="9" font-weight="700" font-family="system-ui">${item.nummer}</text></g>`;
+    } else if(item.type==='klein_doel'||item.type==='groot_doel'){
+      const dw=item.type==='klein_doel'?18:28, dh=item.type==='klein_doel'?12:18;
+      return `<path d="M${item.x-dw/2} ${item.y-dh/2} L${item.x-dw/2} ${item.y+dh/2} M${item.x-dw/2} ${item.y-dh/2} L${item.x+dw/2} ${item.y-dh/2} M${item.x+dw/2} ${item.y-dh/2} L${item.x+dw/2} ${item.y+dh/2}" fill="none" stroke="white" stroke-width="2" stroke-linecap="square"/>`;
+    }
+    return '';
+  }).join('');
+}
+
+// Bouwt het complete SVG-veld voor één oefening (grasstrepen, lijnen, items). Puur weergave.
+function bouwOefeningSVG(oef){
+  const VW=280;
+  const VH=oef.veld==='heel'?430:oef.veld==='half'?215:135;
+  const veldLijnen = oef.veld==='heel'?`
+    <line x1="8" y1="${VH/2}" x2="${VW-8}" y2="${VH/2}" stroke="rgba(255,255,255,.7)" stroke-width="1.5"/>
+    <rect x="${VW/2-50}" y="8" width="100" height="55" fill="none" stroke="rgba(255,255,255,.65)" stroke-width="1.5"/>
+    <rect x="${VW/2-50}" y="${VH-63}" width="100" height="55" fill="none" stroke="rgba(255,255,255,.65)" stroke-width="1.5"/>
+    <rect x="${VW/2-22}" y="8" width="44" height="22" fill="none" stroke="rgba(255,255,255,.5)" stroke-width="1"/>
+    <rect x="${VW/2-22}" y="${VH-30}" width="44" height="22" fill="none" stroke="rgba(255,255,255,.5)" stroke-width="1"/>
+  `:oef.veld==='half'?`
+    <rect x="${VW/2-50}" y="8" width="100" height="55" fill="none" stroke="rgba(255,255,255,.65)" stroke-width="1.5"/>
+    <rect x="${VW/2-22}" y="8" width="44" height="22" fill="none" stroke="rgba(255,255,255,.5)" stroke-width="1"/>
+    <path d="M ${VW/2-45} 63 Q ${VW/2} 90 ${VW/2+45} 63" fill="none" stroke="rgba(255,255,255,.45)" stroke-width="1.5"/>
+  `:``;
+  const uid = 'gras_'+Math.random().toString(36).slice(2);
+  return `<svg viewBox="0 0 ${VW} ${VH}" xmlns="http://www.w3.org/2000/svg" style="width:100%;max-width:340px;display:block;margin:0 auto">
+    <defs><pattern id="${uid}" x="0" y="0" width="${VW}" height="35" patternUnits="userSpaceOnUse">
+      <rect width="${VW}" height="17" fill="#2a5c17"/><rect y="17" width="${VW}" height="18" fill="#2d6319"/>
+    </pattern></defs>
+    <rect width="${VW}" height="${VH}" fill="url(#${uid})" rx="4"/>
+    <rect x="8" y="8" width="${VW-16}" height="${VH-16}" fill="none" stroke="rgba(255,255,255,.7)" stroke-width="1.5"/>
+    ${veldLijnen}
+    ${genereerVastePionLijnen(oef.items, oef.verbindingen)}
+    ${renderOefeningItemsStatisch(oef.items)}
+  </svg>`;
+}
+
+// ---- PDF-EXPORT VAN EEN TRAINING (alle oefeningen: veld + opmerking + teams) ----
+function exporteerTrainingPDF(trainingId){
+  const t = trainingen.find(x=>x.id===trainingId);
+  const lijst = getOefeningen(trainingId);
+  if(!t){ showToast('Training niet gevonden', 'fout'); return; }
+  if(!lijst.length){ showToast('Nog geen oefeningen om te exporteren', 'fout'); return; }
+
+  const oefeningenHtml = lijst.map((oef,i)=>{
+    const teamsHtml = (oef.teams||[]).length>0 ? oef.teams.map(team=>{
+      const namen = (team.spelers||[]).map(spId=>{
+        const sp=spelers.find(s=>s.id===spId);
+        return sp?sp.naam:null;
+      }).filter(Boolean);
+      return `<div style="margin-bottom:6px">
+        <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${team.kleur};margin-right:6px;vertical-align:middle"></span>
+        <strong>${team.naam}:</strong> ${namen.length?namen.join(', '):'<em>Geen spelers gekoppeld</em>'}
+      </div>`;
+    }).join('') : '<div style="font-style:italic;color:#666">Geen teams ingedeeld</div>';
+
+    return `
+      <div style="${i>0?'page-break-before:always;':''}padding-top:20px">
+        <h2 style="margin:0 0 4px;font-size:18px">${i+1}. ${oef.naam||'Oefening'}</h2>
+        <div style="font-size:12px;color:#666;margin-bottom:14px">${oef.veld==='heel'?'Heel veld':oef.veld==='half'?'Half veld':'Kwart veld'}</div>
+        <div style="max-width:380px;margin-bottom:16px">${bouwOefeningSVG(oef)}</div>
+        ${oef.opmerking?`<div style="margin-bottom:14px"><strong>Opmerking:</strong><br>${oef.opmerking.replace(/\n/g,'<br>')}</div>`:''}
+        <div style="font-size:13px">${teamsHtml}</div>
+      </div>`;
+  }).join('');
+
+  const printHtml = `
+    <div style="font-family:system-ui,sans-serif;color:#111;max-width:700px;margin:0 auto">
+      <div style="border-bottom:2px solid #1B5E20;padding-bottom:10px;margin-bottom:10px">
+        <h1 style="margin:0;font-size:22px;color:#1B5E20">Training ${t.dag} ${fmtDate(t.datum)}</h1>
+        <div style="font-size:13px;color:#666">${t.tijd||''} · ${lijst.length} oefening${lijst.length===1?'':'en'}</div>
+      </div>
+      ${oefeningenHtml}
+    </div>`;
+
+  const printWindow = document.getElementById('pdf-export-container');
+  printWindow.innerHTML = printHtml;
+  document.body.classList.add('pdf-export-actief');
+  window.print();
+  setTimeout(()=>{ document.body.classList.remove('pdf-export-actief'); printWindow.innerHTML=''; }, 500);
+}
+
+function renderVoorbereidingInhoud(trainingId){
   const lijst = getOefeningen(trainingId);
   const t = trainingen.find(x=>x.id===trainingId);
   const aanwezigen = spelers.filter(s=>s.type!=='staf')
