@@ -3639,8 +3639,24 @@ function exporteerTrainingPDF(trainingId){
   const printWindow = document.getElementById('pdf-export-container');
   printWindow.innerHTML = printHtml;
   document.body.classList.add('pdf-export-actief');
-  window.print();
-  setTimeout(()=>{ document.body.classList.remove('pdf-export-actief'); printWindow.innerHTML=''; }, 500);
+
+  function opruimen(){
+    document.body.classList.remove('pdf-export-actief');
+    printWindow.innerHTML = '';
+    window.removeEventListener('afterprint', opruimen);
+  }
+  window.addEventListener('afterprint', opruimen);
+
+  // Twee frames wachten zodat de browser de nieuwe DOM-inhoud echt gerenderd heeft
+  // voordat de printdialoog opent (anders kan de PDF leeg lijken).
+  requestAnimationFrame(()=>{
+    requestAnimationFrame(()=>{
+      window.print();
+      // Vangnet: als het afterprint-event om wat voor reden dan ook niet afgaat
+      // (gebeurt soms bij annuleren op bepaalde browsers), toch na een tijdje opruimen.
+      setTimeout(opruimen, 3000);
+    });
+  });
 }
 
 function renderVoorbereidingInhoud(trainingId){
