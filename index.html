@@ -2084,9 +2084,10 @@ function renderTegenstanderKiezer(prefix){
   const nieuwLogo = prefix==='nw' ? nieuweWNieuwLogo : bewerkWNieuwLogo;
   if(gekozen){
     return `<div style="display:flex;align-items:center;gap:10px;padding:8px 10px;background:var(--white);border:1px solid var(--border);border-radius:var(--radius)">
-      <div style="width:36px;height:36px;border-radius:6px;background:var(--bg);display:flex;align-items:center;justify-content:center;overflow:hidden;flex-shrink:0">
+      <div onclick="document.getElementById('${prefix}-gekozen-logo-input').click()" title="Klik om logo te wijzigen" style="width:36px;height:36px;border-radius:6px;background:var(--bg);display:flex;align-items:center;justify-content:center;overflow:hidden;flex-shrink:0;cursor:pointer">
         ${gekozen.logo?`<img src="${gekozen.logo}" style="width:100%;height:100%;object-fit:cover">`:`<i class="ti ti-shield" style="font-size:16px;color:var(--text-light)"></i>`}
       </div>
+      <input type="file" id="${prefix}-gekozen-logo-input" accept="image/*" style="display:none" onchange="uploadGekozenTegenstanderLogo(event,'${prefix}')">
       <span style="font-size:13px;font-weight:600;flex:1">${gekozen.naam}</span>
       <button type="button" onclick="wijzigTegenstanderKeuze('${prefix}')" style="background:none;border:none;color:var(--fcb-groen);cursor:pointer;font-size:12px;text-decoration:underline">wijzig</button>
     </div>`;
@@ -2131,6 +2132,28 @@ function kiesTegenstander(prefix, tegenstanderId){
   if(prefix==='nw') nieuweWGekozenTeg = t; else bewerkWGekozenTeg = t;
   draw();
 }
+// Wijzigt het logo van een REEDS GEKOZEN tegenstander (bestaand record, of nog-niet-opgeslagen fallback-object).
+async function uploadGekozenTegenstanderLogo(e, prefix){
+  const file=e.target.files[0];
+  if(!file) return;
+  const r=new FileReader();
+  r.onload=async ev=>{
+    const gecomprimeerd = await comprimeerAfbeelding(ev.target.result, 200);
+    const gekozen = prefix==='nw' ? nieuweWGekozenTeg : bewerkWGekozenTeg;
+    if(!gekozen) return;
+    gekozen.logo = gecomprimeerd; // meteen lokaal bijwerken, zodat de preview direct klopt
+    if(gekozen.id){
+      // Bestaand tegenstander-record: meteen in de database bijwerken
+      const { error } = await db.from('tegenstanders').update({logo:gecomprimeerd}).eq('id', gekozen.id);
+      if(error){ console.error('Fout bij opslaan tegenstander-logo:', error.message||error, error); showToast('Logo opslaan mislukt: '+(error.message||'controleer verbinding'), 'fout'); }
+    }
+    // Zonder eigen id (fallback-object van een oudere wedstrijd zonder koppeling): het logo wordt
+    // pas echt opgeslagen zodra de wedstrijd zelf wordt opgeslagen (via bepaalTegenstanderVoorOpslaan).
+    draw();
+  };
+  r.readAsDataURL(file);
+}
+
 function wijzigTegenstanderKeuze(prefix){
   if(prefix==='nw'){ nieuweWGekozenTeg=null; nieuweWNieuwLogo=null; } else { bewerkWGekozenTeg=null; bewerkWNieuwLogo=null; }
   draw();
@@ -2152,7 +2175,12 @@ async function uploadNieuweTegenstanderLogo(e, prefix){
 // worden bij het opslaan van een wedstrijd. Maakt zo nodig een nieuw tegenstander-record aan.
 async function bepaalTegenstanderVoorOpslaan(prefix){
   const gekozen = prefix==='nw' ? nieuweWGekozenTeg : bewerkWGekozenTeg;
-  if(gekozen) return gekozen; // al een bestaande tegenstander gekozen
+  if(gekozen && gekozen.id) return gekozen; // al een écht bestaand tegenstander-record
+  if(gekozen && !gekozen.id){
+    // Fallback-object van een oude wedstrijd zonder eigen tegenstander-koppeling: alsnog
+    // een echt record aanmaken (of koppelen aan een gelijknamige, als die intussen bestaat).
+    return await slaTegenstanderOp(gekozen.naam, gekozen.logo);
+  }
   const veld = document.getElementById(`${prefix}-teg-zoek`);
   const naam = (veld?.value||'').trim();
   if(!naam) return null;
@@ -2199,6 +2227,22 @@ async function deelLiveLink(wedstrijdId){
 
 // ---- Tegenstander verwijderen (uit het beheer, niet gekoppeld aan een specifieke wedstrijd) ----
 let verwijderTegenstanderId=null;
+async function uploadTegenstanderLogoBeheer(e, tegenstanderId){
+  const file=e.target.files[0];
+  if(!file) return;
+  const r=new FileReader();
+  r.onload=async ev=>{
+    const gecomprimeerd = await comprimeerAfbeelding(ev.target.result, 200);
+    const { error } = await db.from('tegenstanders').update({logo:gecomprimeerd}).eq('id', tegenstanderId);
+    if(error){ console.error('Fout bij opslaan tegenstander-logo:', error.message||error, error); showToast('Logo opslaan mislukt: '+(error.message||'controleer verbinding'), 'fout'); return; }
+    const t = tegenstanders.find(x=>x.id===tegenstanderId);
+    if(t) t.logo = gecomprimeerd;
+    showToast('Logo bijgewerkt');
+    draw();
+  };
+  r.readAsDataURL(file);
+}
+
 function vraagVerwijderTegenstanderBevestiging(id){
   verwijderTegenstanderId=id;
   draw();
@@ -3439,9 +3483,10 @@ function renderBeheer(){
   `:beheerTab==='tegenstanders'?`
     ${tegenstanders.length===0?'<div style="font-size:13px;color:var(--text-light);padding:12px 4px">Nog geen tegenstanders. Deze worden automatisch toegevoegd zodra je ze bij een wedstrijd invult.</div>':
       tegenstanders.map(t=>`<div class="season-row">
-        <div style="width:32px;height:32px;border-radius:6px;background:var(--bg);display:flex;align-items:center;justify-content:center;overflow:hidden;flex-shrink:0">
+        <div onclick="document.getElementById('beheer-teg-logo-${t.id}').click()" title="Klik om logo te wijzigen" style="width:32px;height:32px;border-radius:6px;background:var(--bg);display:flex;align-items:center;justify-content:center;overflow:hidden;flex-shrink:0;cursor:pointer;border:1px solid var(--border)">
           ${t.logo?`<img src="${t.logo}" style="width:100%;height:100%;object-fit:cover">`:`<i class="ti ti-shield" style="font-size:14px;color:var(--text-light)"></i>`}
         </div>
+        <input type="file" id="beheer-teg-logo-${t.id}" accept="image/*" style="display:none" onchange="uploadTegenstanderLogoBeheer(event,${t.id})">
         <div style="font-size:14px;font-weight:600;flex:1">${t.naam}</div>
         <button class="icon-btn danger" onclick="vraagVerwijderTegenstanderBevestiging(${t.id})" title="Verwijder"><i class="ti ti-trash"></i></button>
       </div>`).join('')}
