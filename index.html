@@ -412,6 +412,14 @@ let nextSeizoenId = 4;
 // ============================================================
 let spelersGeladen = false;
 
+// Genereert een niet-oplopende, niet-raadbare code voor gebruik in URL's (bv. /spelers/a3f9k2m1).
+// Let op: dit is verduistering, geen echte toegangsbeveiliging -- er is nog geen login,
+// dus wie de URL kent kan de pagina nog steeds openen. Echte afscherming volgt later via login.
+function genereerPublicCode(){
+  if(window.crypto && crypto.randomUUID) return crypto.randomUUID().replace(/-/g,'').slice(0,10);
+  return Math.random().toString(36).slice(2,12); // eenvoudige fallback voor zeer oude browsers
+}
+
 function spelerNaarRij(sp){
   // Zet een speler-object (app-vorm) om naar een database-rij (kolomvorm).
   // Let op: dit bevat alleen de VASTE gegevens. Seizoensgebonden velden (nr, pos, status,
@@ -419,7 +427,7 @@ function spelerNaarRij(sp){
   return {
     id: sp.id, naam: sp.naam, init: sp.init, voet: sp.voet, geboortedatum: sp.geboortedatum,
     nationaliteit: sp.nationaliteit, lengte: sp.lengte, club: sp.club,
-    type: sp.type, foto: sp.foto,
+    type: sp.type, foto: sp.foto, public_code: sp.publicCode || genereerPublicCode(),
     skill_vis: sp.skillVis ?? {fysiek:true,mentaal:true,tactisch:true,skills:true}
   };
 }
@@ -442,6 +450,7 @@ function rijNaarSpeler(r){
   return {
     id:r.id, naam:r.naam, init:r.init, voet:r.voet, geboortedatum:r.geboortedatum,
     nationaliteit:r.nationaliteit, lengte:r.lengte, club:r.club, type:r.type, foto:r.foto,
+    publicCode:r.public_code,
     skillVis:r.skill_vis||{fysiek:true,mentaal:true,tactisch:true,skills:true}
   };
 }
@@ -481,7 +490,9 @@ async function laadSpelersUitDatabase(){
 }
 
 async function syncSpelerNaarDatabase(sp){
-  const { error } = await db.from('spelers').upsert(spelerNaarRij(sp));
+  const rij = spelerNaarRij(sp);
+  sp.publicCode = rij.public_code; // onthoud de (mogelijk net gegenereerde) code, ook lokaal
+  const { error } = await db.from('spelers').upsert(rij);
   if(error){ console.error('Fout bij opslaan speler:', error.message||error, error); showToast('Opslaan mislukt: '+(error.message||'controleer verbinding'), 'fout'); }
 }
 
@@ -563,7 +574,8 @@ function wedstrijdNaarRij(w){
     opstelling: w.opstelling||[], bank: w.bank||[], events: w.events||[],
     selectie: w.selectie||{}, opstelling_pos: w.opstellingPos||{},
     wissel_bank: w.wisselBank||[], wissels: w.wissels||[],
-    speelminuten: w.speelminuten||{}, seizoen_id: w.seizoenId
+    speelminuten: w.speelminuten||{}, seizoen_id: w.seizoenId,
+    public_code: w.publicCode || genereerPublicCode()
   };
 }
 
@@ -574,7 +586,7 @@ function rijNaarWedstrijd(r){
     opstelling:r.opstelling||[], bank:r.bank||[], events:r.events||[],
     selectie:r.selectie||{}, opstellingPos:r.opstelling_pos||{},
     wisselBank:r.wissel_bank||[], wissels:r.wissels||[],
-    speelminuten:r.speelminuten||{}, seizoenId:r.seizoen_id
+    speelminuten:r.speelminuten||{}, seizoenId:r.seizoen_id, publicCode:r.public_code
   };
 }
 
@@ -602,7 +614,12 @@ function syncWedstrijdNaarDatabase(w){
   _wedstrijdSyncTimer = setTimeout(async ()=>{
     const ids = [..._wedstrijdSyncWachtrij];
     _wedstrijdSyncWachtrij.clear();
-    const rijen = ids.map(id=>wedstrijdNaarRij(wedstrijden.find(x=>x.id===id))).filter(Boolean);
+    const wedstrijdObjecten = ids.map(id=>wedstrijden.find(x=>x.id===id)).filter(Boolean);
+    const rijen = wedstrijdObjecten.map(w=>{
+      const rij = wedstrijdNaarRij(w);
+      w.publicCode = rij.public_code; // onthoud de (mogelijk net gegenereerde) code, ook lokaal
+      return rij;
+    });
     if(!rijen.length) return;
     const { error } = await db.from('wedstrijden').upsert(rijen);
     if(error){ console.error('Fout bij opslaan wedstrijd:', error.message||error, error); showToast('Opslaan wedstrijd mislukt: '+(error.message||'controleer verbinding'), 'fout'); }
@@ -620,13 +637,14 @@ async function verwijderWedstrijdUitDatabase(id){
 function trainingNaarRij(t){
   return {
     id: t.id, seizoen_id: t.seizoenId, datum: t.datum, dag: t.dag, tijd: t.tijd,
-    geannuleerd: !!t.geannuleerd, aanwezigheid: t.aanwezigheid||{}
+    geannuleerd: !!t.geannuleerd, aanwezigheid: t.aanwezigheid||{},
+    public_code: t.publicCode || genereerPublicCode()
   };
 }
 function rijNaarTraining(r){
   return {
     id:r.id, seizoenId:r.seizoen_id, datum:r.datum, dag:r.dag, tijd:r.tijd,
-    geannuleerd:!!r.geannuleerd, aanwezigheid:r.aanwezigheid||{}
+    geannuleerd:!!r.geannuleerd, aanwezigheid:r.aanwezigheid||{}, publicCode:r.public_code
   };
 }
 function oefeningNaarRij(oef, trainingId, volgorde){
@@ -673,7 +691,9 @@ async function laadOefeningenVoorTrainingen(trainingIds){
 }
 
 async function syncTrainingNaarDatabase(t){
-  const { error } = await db.from('trainingen').upsert(trainingNaarRij(t));
+  const rij = trainingNaarRij(t);
+  t.publicCode = rij.public_code; // onthoud de (mogelijk net gegenereerde) code, ook lokaal
+  const { error } = await db.from('trainingen').upsert(rij);
   if(error){ console.error('Fout bij opslaan training:', error.message||error, error); showToast('Opslaan training mislukt: '+(error.message||'controleer verbinding'), 'fout'); }
 }
 async function verwijderTrainingUitDatabase(id){
@@ -961,18 +981,10 @@ function setPage(p, behoudSelectie, viaPopstate){
   // "meer" op mobiel = toon een menu met de secties die niet in de tabbar passen
   if(p==='meer'){ toonMeerMenu(); return; }
   page=p;
-  if(!behoudSelectie){ activeSpelerId=null; activeWedstrijdId=null; }
-  // URL bijwerken, tenzij we hier komen doordat de gebruiker net op de browser-terugknop klikte
-  // (dan is de URL al veranderd en zou een nieuwe pushState de terug-knop juist verstoren)
-  if(!viaPopstate){
-    const pad = p==='dashboard' ? '/' : '/'+p;
-    if(window.location.pathname !== pad){
-      window.history.pushState({page:p}, '', pad);
-    }
-  }
+  if(!behoudSelectie){ activeSpelerId=null; activeWedstrijdId=null; activeTrainingId=null; }
   werkActieveNavigatieBij(p);
   window.scrollTo(0,0);
-  draw();
+  draw(); // draw() zorgt zelf voor de URL-synchronisatie, zie synchroniseerUrlMetState()
 }
 
 // Markeert het juiste sidebar/tabbar-item als actief. Los van setPage bruikbaar (bv. bij opstarten).
@@ -988,17 +1000,70 @@ function werkActieveNavigatieBij(p){
   });
 }
 
-// Vertaalt het huidige URL-pad naar een pagina-naam. Onbekende paden vallen terug op het dashboard.
 const GELDIGE_PAGINAS = ['dashboard','spelers','wedstrijden','statistieken','ontwikkeling','rollen','trainingen'];
-function paginaVanUrl(){
-  const pad = window.location.pathname.replace(/^\/|\/$/g,''); // slashes aan begin/eind weg
-  if(pad===''){ return 'dashboard'; }
-  return GELDIGE_PAGINAS.includes(pad) ? pad : 'dashboard';
+
+// Zet de huidige app-state (page + eventueel geopende speler/wedstrijd/training) om in een URL-pad,
+// en werkt de adresbalk bij als die nog niet klopt. Wordt aan het eind van elke draw() aangeroepen,
+// zodat ALLE bestaande plekken die activeSpelerId/activeWedstrijdId/activeTrainingId zetten
+// (zonder dat we die stuk voor stuk hoeven aan te passen) automatisch de juiste URL krijgen.
+let _laatsteUrlSyncPad = null;
+function synchroniseerUrlMetState(){
+  if(!GELDIGE_PAGINAS.includes(page)) return;
+  let pad = page==='dashboard' ? '/' : '/'+page;
+  if(page==='spelers' && activeSpelerId){
+    const sp = spelers.find(s=>s.id===activeSpelerId);
+    if(sp && sp.publicCode) pad += '/'+sp.publicCode;
+  } else if(page==='wedstrijden' && activeWedstrijdId){
+    const w = wedstrijden.find(x=>x.id===activeWedstrijdId);
+    if(w && w.publicCode) pad += '/'+w.publicCode;
+  } else if(page==='trainingen' && activeTrainingId){
+    const t = trainingen.find(x=>x.id===activeTrainingId);
+    if(t && t.publicCode) pad += '/'+t.publicCode;
+  }
+  if(pad===_laatsteUrlSyncPad) return; // niets veranderd sinds de vorige keer, geen actie nodig
+  _laatsteUrlSyncPad = pad;
+  if(window.location.pathname !== pad){
+    window.history.pushState({page, activeSpelerId, activeWedstrijdId, activeTrainingId}, '', pad);
+  }
+}
+
+// Ontleedt het huidige URL-pad naar {pagina, code}. Onbekende paginapaden vallen terug op dashboard.
+function ontleedUrl(){
+  const delen = window.location.pathname.replace(/^\/|\/$/g,'').split('/').filter(Boolean);
+  if(delen.length===0) return {pagina:'dashboard', code:null};
+  const pagina = GELDIGE_PAGINAS.includes(delen[0]) ? delen[0] : 'dashboard';
+  const code = delen.length>1 ? delen[1] : null;
+  return {pagina, code};
+}
+
+// Past de app-state aan op basis van het huidige URL-pad (gebruikt bij opstarten en browser-navigatie).
+// Zoekt bij een code het bijbehorende record op; als dat nog niet geladen is (bv. code voor spelers
+// die pas na het laden van de database bekend worden), wordt dit na het laden opnieuw geprobeerd
+// via pasUrlToe() aan het eind van de betreffende laadfunctie.
+function pasUrlToe(){
+  const {pagina, code} = ontleedUrl();
+  page = pagina;
+  activeSpelerId=null; activeWedstrijdId=null; activeTrainingId=null;
+  if(code){
+    if(pagina==='spelers'){
+      const sp = spelers.find(s=>s.publicCode===code);
+      if(sp) activeSpelerId = sp.id;
+    } else if(pagina==='wedstrijden'){
+      const w = wedstrijden.find(x=>x.publicCode===code);
+      if(w) activeWedstrijdId = w.id;
+    } else if(pagina==='trainingen'){
+      const t = trainingen.find(x=>x.publicCode===code);
+      if(t) activeTrainingId = t.id;
+    }
+  }
 }
 
 // Reageer op de browser terug/vooruit-knoppen
 window.addEventListener('popstate', ()=>{
-  setPage(paginaVanUrl(), false, true);
+  pasUrlToe();
+  _laatsteUrlSyncPad = null; // forceer dat de volgende draw() de URL niet als "al gelijk" beschouwt
+  werkActieveNavigatieBij(page);
+  draw();
 });
 
 function toonMeerMenu(){
@@ -1060,6 +1125,7 @@ function draw(){
     p.setAttribute('stroke-dasharray', '10 6');
   });
   syncTopbar();
+  synchroniseerUrlMetState();
 }
 
 function syncTopbar(){
@@ -4976,9 +5042,11 @@ function verwijderItemVeld(trainingId, oefId, itemIdx){
 }
 
 // ---- START ----
-page = paginaVanUrl(); // toon direct de juiste pagina op basis van het huidige URL-pad
+const { pagina: _startPagina, code: _startCode } = ontleedUrl(); // bewaar de eventuele code VOORDAT we de URL normaliseren
+page = _startPagina; // toon direct de juiste hoofdpagina op basis van het huidige URL-pad
 // Als het pad niet overeenkwam met een geldige pagina (bv. verkeerd getypt of een oude link),
-// normaliseren we de adresbalk naar de daadwerkelijk getoonde pagina.
+// normaliseren we de adresbalk naar de daadwerkelijk getoonde pagina (nog zonder code, die volgt pas
+// als de data geladen is en we de code naar een echt record kunnen vertalen).
 window.history.replaceState({page}, '', page==='dashboard' ? '/' : '/'+page);
 draw(); // teken direct met de ingebouwde standaardlijst, zodat het scherm niet leeg is
 werkActieveNavigatieBij(page);
@@ -4992,7 +5060,25 @@ laadSeizoenenUitDatabase()
     if(dbWasLeeg) return eenmaligeSeedNaarDatabase().then(laadSpelersUitDatabase);
   })
   .then(()=>laadWedstrijdenUitDatabase())
-  .then(()=>laadTrainingenUitDatabase());
+  .then(()=>laadTrainingenUitDatabase())
+  .then(()=>{
+    // Nu alle data geladen is: als de oorspronkelijke URL een specifieke code bevatte
+    // (bv. /spelers/a3f9k2m1), proberen we die alsnog te herstellen.
+    if(_startCode){
+      if(page==='spelers'){
+        const sp = spelers.find(s=>s.publicCode===_startCode);
+        if(sp) activeSpelerId = sp.id;
+      } else if(page==='wedstrijden'){
+        const w = wedstrijden.find(x=>x.publicCode===_startCode);
+        if(w) activeWedstrijdId = w.id;
+      } else if(page==='trainingen'){
+        const t = trainingen.find(x=>x.publicCode===_startCode);
+        if(t) activeTrainingId = t.id;
+      }
+      werkActieveNavigatieBij(page);
+      draw();
+    }
+  });
 </script>
 </body>
 </html>
