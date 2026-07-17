@@ -301,6 +301,9 @@ body{font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
 /* Wedstrijd events */
 .event-row{display:flex;align-items:center;gap:10px;padding:10px 13px;background:var(--bg);border-radius:10px;font-size:13px;margin-bottom:6px}
 .event-min{font-size:12px;font-weight:600;color:var(--text-muted);width:42px;flex-shrink:0;font-variant-numeric:tabular-nums}
+/* Publieke fan-live-pagina: geen sidebar, geen tabbar, geen header-menu */
+body.fan-live-modus .sidebar, body.fan-live-modus .tabbar, body.fan-live-modus header{display:none !important}
+body.fan-live-modus .main-area{padding:1rem !important;margin:0 !important}
 </style>
 </head>
 <body>
@@ -576,7 +579,8 @@ function wedstrijdNaarRij(w){
     selectie: w.selectie||{}, opstelling_pos: w.opstellingPos||{},
     wissel_bank: w.wisselBank||[], wissels: w.wissels||[],
     speelminuten: w.speelminuten||{}, seizoen_id: w.seizoenId,
-    public_code: w.publicCode || genereerPublicCode()
+    public_code: w.publicCode || genereerPublicCode(),
+    klok_fase: w.klokFase||'voor', klok_start_tijd: w.klokStartTijd||null, klok_verstreken: w.klokVerstreken||0
   };
 }
 
@@ -587,7 +591,8 @@ function rijNaarWedstrijd(r){
     opstelling:r.opstelling||[], bank:r.bank||[], events:r.events||[],
     selectie:r.selectie||{}, opstellingPos:r.opstelling_pos||{},
     wisselBank:r.wissel_bank||[], wissels:r.wissels||[],
-    speelminuten:r.speelminuten||{}, seizoenId:r.seizoen_id, publicCode:r.public_code
+    speelminuten:r.speelminuten||{}, seizoenId:r.seizoen_id, publicCode:r.public_code,
+    klokFase:r.klok_fase||'voor', klokStartTijd:r.klok_start_tijd||null, klokVerstreken:r.klok_verstreken||0
   };
 }
 
@@ -920,10 +925,40 @@ function klokLabel(){
   return{display:`${pad(mm)}:${pad(ss)}`,extra:false};
 }
 function klokNu(){const s=klokSeconds(),mm=Math.floor(s/60),ss=s%60;if(mm>=90)return`90+${pad(mm-90)}:${pad(ss)}`;return`${pad(mm)}:${pad(ss)}`;}
-function startEerste(){klokPhase='eerste';klokElapsed=0;klokStart=Date.now();klokInterval=setInterval(draw,500);draw();}
-function startRust(){clearInterval(klokInterval);klokElapsed=klokSeconds();klokStart=null;klokPhase='rust';draw();}
-function startTweede(){klokPhase='tweede';klokElapsed=45*60;klokStart=Date.now();klokInterval=setInterval(draw,500);draw();}
-function eindWedstrijd(){clearInterval(klokInterval);klokElapsed=klokSeconds();klokStart=null;klokPhase='afgelopen';draw();}
+function startEerste(wedstrijdId){
+  klokPhase='eerste';klokElapsed=0;klokStart=Date.now();klokInterval=setInterval(draw,500);
+  syncKlokNaarDatabase(wedstrijdId);
+  draw();
+}
+function startRust(wedstrijdId){
+  clearInterval(klokInterval);klokElapsed=klokSeconds();klokStart=null;klokPhase='rust';
+  syncKlokNaarDatabase(wedstrijdId);
+  draw();
+}
+function startTweede(wedstrijdId){
+  klokPhase='tweede';klokElapsed=45*60;klokStart=Date.now();klokInterval=setInterval(draw,500);
+  syncKlokNaarDatabase(wedstrijdId);
+  draw();
+}
+function eindWedstrijd(wedstrijdId){
+  clearInterval(klokInterval);klokElapsed=klokSeconds();klokStart=null;klokPhase='afgelopen';
+  syncKlokNaarDatabase(wedstrijdId);
+  draw();
+}
+
+// Synchroniseert de huidige (globale, staf-lokale) klokstatus naar het wedstrijd-record in de
+// database, zodat fans op de live-pagina de voortgang kunnen zien zonder zelf een klok-app te hebben.
+async function syncKlokNaarDatabase(wedstrijdId){
+  if(!wedstrijdId) return;
+  const startTijdIso = klokStart ? new Date(klokStart).toISOString() : null;
+  const { error } = await db.from('wedstrijden').update({
+    klok_fase: klokPhase, klok_start_tijd: startTijdIso, klok_verstreken: klokElapsed
+  }).eq('id', wedstrijdId);
+  if(error) console.error('Fout bij synchroniseren klok:', error.message||error, error);
+  // Ook lokaal bijwerken zodat het wedstrijd-object consistent blijft met de database
+  const w = wedstrijden.find(x=>x.id===wedstrijdId);
+  if(w){ w.klokFase=klokPhase; w.klokStartTijd=startTijdIso; w.klokVerstreken=klokElapsed; }
+}
 
 // ============================================================
 // WEDSTRIJD STATUS & SELECTIE/OPSTELLING/SPEELMINUTEN HELPERS
@@ -1016,6 +1051,95 @@ function werkActieveNavigatieBij(p){
 }
 
 const GELDIGE_PAGINAS = ['dashboard','spelers','wedstrijden','statistieken','ontwikkeling','rollen','trainingen'];
+
+// ============================================================
+// PUBLIEKE FAN-PAGINA (/live/{code}) — geen login, geen sidebar/menu,
+// alleen score/tijd/events. Opstelling wordt bewust NIET getoond.
+// ============================================================
+function isFanLivePad(){
+  return window.location.pathname.replace(/^\/|\/$/g,'').startsWith('live/');
+}
+function fanLiveCode(){
+  const delen = window.location.pathname.replace(/^\/|\/$/g,'').split('/').filter(Boolean);
+  return delen[1] || null;
+}
+
+let _fanKlokInterval = null;
+async function initFanLivePagina(){
+  const code = fanLiveCode();
+  document.getElementById('pageContent').innerHTML = '<div style="text-align:center;padding:3rem;color:var(--text-muted)">Wedstrijd laden…</div>';
+  if(!code){ toonFanFout('Geen wedstrijd opgegeven.'); return; }
+  const { data, error } = await db.from('wedstrijden').select('*').eq('public_code', code).maybeSingle();
+  if(error || !data){ toonFanFout('Deze wedstrijd is niet gevonden. Controleer de link.'); return; }
+  const w = rijNaarWedstrijd(data);
+  renderFanLivePagina(w);
+  clearInterval(_fanKlokInterval);
+  // Elke 5 seconden verse data ophalen zodat score/events/klok bijblijven zonder dat de fan hoeft te verversen
+  _fanKlokInterval = setInterval(async ()=>{
+    const { data: verse } = await db.from('wedstrijden').select('*').eq('public_code', code).maybeSingle();
+    if(verse) renderFanLivePagina(rijNaarWedstrijd(verse));
+  }, 5000);
+}
+
+function toonFanFout(msg){
+  document.getElementById('pageContent').innerHTML = `<div style="text-align:center;padding:3rem;color:var(--text-muted)">
+    <i class="ti ti-alert-circle" style="font-size:32px;color:#dc2626;display:block;margin-bottom:12px"></i>${msg}
+  </div>`;
+}
+
+// Berekent de klok-weergave puur op basis van gedeelde databasevelden (geen afhankelijkheid
+// van de lokale, staf-only klokPhase/klokStart variabelen).
+function fanKlokLabel(w){
+  const fase = w.klokFase||'voor';
+  if(fase==='voor') return {display:'Nog niet begonnen', live:false};
+  if(fase==='rust') return {display:'Rust', live:false};
+  if(fase==='afgelopen') return {display:'Einde', live:false};
+  const verstreken = w.klokVerstreken||0;
+  const sec = w.klokStartTijd ? verstreken + Math.floor((Date.now()-new Date(w.klokStartTijd).getTime())/1000) : verstreken;
+  const mm = Math.floor(sec/60), ss = sec%60;
+  const pad2 = n=>String(n).padStart(2,'0');
+  if(mm>=90) return {display:`90+${pad2(mm-90)}:${pad2(ss)}`, live:true};
+  return {display:`${pad2(mm)}:${pad2(ss)}`, live:true};
+}
+
+function renderFanLivePagina(w){
+  const cl = fanKlokLabel(w);
+  const isGepland = w.status==='gepland';
+  const evLijst = (w.events||[]).length===0
+    ? '<div style="text-align:center;padding:1rem;color:var(--text-light);font-size:13px">Nog geen events</div>'
+    : [...w.events].reverse().map(e=>{
+        if(e.type==='wissel') return `<div class="event-row"><span class="event-min">${e.min}'</span><i class="ti ti-arrows-exchange" style="color:#0369a1;font-size:15px"></i><span style="font-size:13px">Wissel</span></div>`;
+        if(e.type==='kaart'){
+          const kleurHex = e.kleur==='rood'?'#dc2626':'#facc15';
+          return `<div class="event-row"><span class="event-min">${e.min}'</span><span style="display:inline-block;width:11px;height:15px;background:${kleurHex};border-radius:2px"></span><span style="font-size:13px">${e.speler}</span></div>`;
+        }
+        return `<div class="event-row"><span class="event-min">${e.min}'</span><i class="ti ti-ball-football" style="color:var(--fcb-groen);font-size:15px"></i><span style="font-size:13px">${e.speler}${e.assist&&e.assist!=='geen'?` <span style="color:var(--text-muted)">(assist: ${e.assist})</span>`:''}</span></div>`;
+      }).join('');
+
+  const html = `
+    <div style="max-width:480px;margin:0 auto;padding:1.5rem 1rem">
+      <div style="text-align:center;margin-bottom:1.5rem">
+        <div style="font-size:13px;color:var(--text-muted);font-weight:600;letter-spacing:.03em;text-transform:uppercase">${w.type||''}</div>
+        <div style="font-size:13px;color:var(--text-muted)">${fmtDate(w.datum)}${w.tijd?' · '+w.tijd:''}</div>
+      </div>
+      <div style="text-align:center;padding:1.5rem;background:var(--bg);border-radius:var(--radius-lg);margin-bottom:1.25rem">
+        <div style="display:flex;justify-content:center;align-items:center;gap:1.5rem;margin-bottom:.75rem">
+          <div style="text-align:right;flex:1"><div style="font-size:15px;font-weight:700">FC Binnenmaas 1</div></div>
+          <div style="font-size:40px;font-weight:700;min-width:90px">${w.score?`${w.score.e} - ${w.score.t}`:'– - –'}</div>
+          <div style="text-align:left;flex:1"><div style="font-size:15px;font-weight:700">${w.teg}</div></div>
+        </div>
+        <div style="display:inline-flex;align-items:center;gap:6px;font-size:${isGepland?'14px':'22px'};font-weight:700;color:${cl.live?'var(--fcb-groen)':'var(--text-muted)'}">
+          ${cl.live?'<span style="width:8px;height:8px;border-radius:50%;background:#dc2626;display:inline-block;animation:pulse 1.5s infinite"></span>':''}
+          ${cl.display}
+        </div>
+      </div>
+      <div class="sec-lbl">Wedstrijdverloop</div>
+      ${evLijst}
+      <div style="text-align:center;margin-top:2rem;font-size:11px;color:var(--text-light)">FC Binnenmaas 1 — Trainers app</div>
+    </div>
+    <style>@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}</style>`;
+  document.getElementById('pageContent').innerHTML = html;
+}
 
 // Zet de huidige app-state (page + eventueel geopende speler/wedstrijd/training) om in een URL-pad,
 // en werkt de adresbalk bij als die nog niet klopt. Wordt aan het eind van elke draw() aangeroepen,
@@ -1889,6 +2013,20 @@ function slaaNieuweWedstrijdOp(){
 // ---- Wedstrijd verwijderen: eerst bevestigen ----
 let verwijderWedstrijdId=null;
 
+// Toont/kopieert de publieke, niet-raadbare live-link voor fans (zonder opstelling/staf-functies)
+async function deelLiveLink(wedstrijdId){
+  const w = wedstrijden.find(x=>x.id===wedstrijdId);
+  if(!w || !w.publicCode){ showToast('Kon geen link genereren voor deze wedstrijd', 'fout'); return; }
+  const link = `${window.location.origin}/live/${w.publicCode}`;
+  try{
+    await navigator.clipboard.writeText(link);
+    showToast('Live-link gekopieerd naar klembord!');
+  }catch(e){
+    // Clipboard API kan geweigerd worden (bv. geen HTTPS of geen toestemming) -- toon de link dan gewoon
+    showToast('Kon niet automatisch kopiëren: '+link, 'fout');
+  }
+}
+
 function vraagVerwijderWedstrijdBevestiging(wedstrijdId){
   if(blokkeerInArchief()) return;
   verwijderWedstrijdId=wedstrijdId;
@@ -2026,6 +2164,7 @@ function renderWedstrijdDetail(){
   const bewerkKnop = gepland
     ? `<button class="btn-outline" onclick="openBewerkWedstrijd(${w.id})"><i class="ti ti-pencil" style="font-size:14px"></i> Bewerken</button>`
     : '';
+  const deelKnop = `<button class="btn-outline" onclick="deelLiveLink(${w.id})"><i class="ti ti-share" style="font-size:14px"></i> Live delen</button>`;
   const verwijderKnop = `<button class="btn-outline" style="border-color:#fca5a5;color:#dc2626" onclick="vraagVerwijderWedstrijdBevestiging(${w.id})"><i class="ti ti-trash" style="font-size:14px"></i></button>`;
 
   return`
@@ -2043,7 +2182,7 @@ function renderWedstrijdDetail(){
             ${statusBadge}
           </div>
         </div>
-        <div style="display:flex;gap:8px">${bewerkKnop}${startKnop}${verwijderKnop}</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">${bewerkKnop}${startKnop}${deelKnop}${verwijderKnop}</div>
       </div>
       <div class="tab-bar">
         ${tabs.map(t=>`<div class="tab${wedstrijdTab===t[0]?' active':''}" onclick="wedstrijdTab='${t[0]}';draw()">${t[1]}</div>`).join('')}
@@ -2464,6 +2603,7 @@ function startWedstrijd(wedstrijdId){
   w.status='live';
   if(!w.score) w.score={e:0,t:0};
   klokPhase='voor'; klokElapsed=0; klokStart=null;
+  w.klokFase='voor'; w.klokStartTijd=null; w.klokVerstreken=0;
   syncWedstrijdNaarDatabase(w);
   draw();
 }
@@ -2486,6 +2626,10 @@ function renderWedstrijdLive(w){
           const uit=spelers.find(s=>s.id===Number(e.uit)), inSp=spelers.find(s=>s.id===Number(e.in));
           return `<div class="event-row"><span class="event-min">${e.min}\'</span><i class="ti ti-arrows-exchange" style="color:#0369a1;font-size:15px"></i><span style="font-size:13px"><span style="color:#dc2626">${uit?uit.naam:'?'}</span> → <span style="color:var(--fcb-groen)">${inSp?inSp.naam:'?'}</span></span></div>`;
         }
+        if(e.type==='kaart'){
+          const kleurHex = e.kleur==='rood'?'#dc2626':'#facc15';
+          return `<div class="event-row"><span class="event-min">${e.min}\'</span><span style="display:inline-block;width:11px;height:15px;background:${kleurHex};border-radius:2px"></span><span style="font-size:13px">${e.speler}</span></div>`;
+        }
         return `<div class="event-row"><span class="event-min">${e.min}\'</span><i class="ti ti-ball-football" style="color:var(--fcb-groen);font-size:15px"></i><span>${e.speler}${e.assist&&e.assist!=='geen'?` <span style="font-size:11px;color:var(--text-muted)">(assist: ${e.assist})</span>`:''}</span></div>`;
       }).join('');
 
@@ -2499,9 +2643,9 @@ function renderWedstrijdLive(w){
       ${cl.extra?`<div style="font-size:11px;color:#dc2626;font-weight:600">Blessuretijd</div>`:''}
       <div class="clock-display" style="font-size:24px;font-weight:700;color:var(--fcb-groen)">${cl.display}</div>
       <div style="margin-top:10px;display:flex;gap:6px;justify-content:center;flex-wrap:wrap">
-        ${klokPhase==='voor'?`<button class="btn-green" style="font-size:12px;padding:6px 14px" onclick="startEerste()"><i class="ti ti-player-play" style="font-size:12px"></i> Start 1e helft</button>`:''}
-        ${klokPhase==='eerste'?`<button style="background:#E8C400;color:#1a1a1a;border:none;border-radius:var(--radius);padding:6px 14px;font-size:12px;cursor:pointer;font-family:inherit" onclick="startRust()"><i class="ti ti-player-pause" style="font-size:12px"></i> Rust</button>`:''}
-        ${klokPhase==='rust'?`<button class="btn-green" style="font-size:12px;padding:6px 14px" onclick="startTweede()"><i class="ti ti-player-play" style="font-size:12px"></i> Start 2e helft</button>`:''}
+        ${klokPhase==='voor'?`<button class="btn-green" style="font-size:12px;padding:6px 14px" onclick="startEerste(${w.id})"><i class="ti ti-player-play" style="font-size:12px"></i> Start 1e helft</button>`:''}
+        ${klokPhase==='eerste'?`<button style="background:#E8C400;color:#1a1a1a;border:none;border-radius:var(--radius);padding:6px 14px;font-size:12px;cursor:pointer;font-family:inherit" onclick="startRust(${w.id})"><i class="ti ti-player-pause" style="font-size:12px"></i> Rust</button>`:''}
+        ${klokPhase==='rust'?`<button class="btn-green" style="font-size:12px;padding:6px 14px" onclick="startTweede(${w.id})"><i class="ti ti-player-play" style="font-size:12px"></i> Start 2e helft</button>`:''}
         ${klokPhase==='tweede'?`<button style="background:#dc2626;color:white;border:none;border-radius:var(--radius);padding:6px 14px;font-size:12px;cursor:pointer;font-family:inherit" onclick="floitAf(${w.id})"><i class="ti ti-whistle" style="font-size:12px"></i> Affluiten</button>`:''}
         ${klokPhase==='afgelopen'?`<button class="btn-green" style="font-size:12px;padding:6px 14px" onclick="floitAf(${w.id})"><i class="ti ti-check" style="font-size:12px"></i> Wedstrijd opslaan</button>`:''}
       </div>
@@ -2510,6 +2654,7 @@ function renderWedstrijdLive(w){
     <div style="display:flex;gap:8px;margin-bottom:1rem;flex-wrap:wrap">
       <button class="btn-outline" style="flex:1;justify-content:center;font-size:13px;min-width:130px" onclick="openDoelpunt(${w.id})"><i class="ti ti-ball-football" style="font-size:15px;color:var(--fcb-groen)"></i> Doelpunt</button>
       <button class="btn-outline" style="flex:1;justify-content:center;font-size:13px;min-width:130px" onclick="openWissel(${w.id})"${opBank.length===0?' disabled title="Geen wisselspelers"':''}><i class="ti ti-arrows-exchange" style="font-size:15px;color:#0369a1"></i> Wissel</button>
+      <button class="btn-outline" style="flex:1;justify-content:center;font-size:13px;min-width:130px" onclick="openKaart(${w.id})"><i class="ti ti-square" style="font-size:15px;color:#ca8a04"></i> Kaart</button>
     </div>
 
     <div class="sec-lbl">Wedstrijdverloop</div>
@@ -2521,6 +2666,7 @@ function floitAf(wedstrijdId){
   const w = ensureWedstrijdVelden(wedstrijden.find(x=>x.id===wedstrijdId));
   clearInterval(klokInterval); klokStart=null; klokPhase='afgelopen';
   w.status='gespeeld';
+  w.klokFase='afgelopen'; w.klokStartTijd=null; w.klokVerstreken=klokElapsed;
   syncSpeelminuten(w);
   // Update doelpunten/assists tellingen op spelers
   activeWedstrijdId=w.id; wedstrijdTab='speelminuten';
@@ -2533,6 +2679,18 @@ function floitAf(wedstrijdId){
 function openDoelpunt(wedstrijdId){ liveActie={type:'doelpunt', wedstrijdId, kant:'eigen', speler:null}; draw(); }
 function openWissel(wedstrijdId){ liveActie={type:'wissel', wedstrijdId, uit:null, in:null}; draw(); }
 function sluitLiveActie(){ liveActie=null; draw(); }
+
+// Herbruikbare speler-knop met foto/initialen, voor live-acties (doelpunt, assist, wissel, kaart)
+function liveSpelerKnop(sp, geselecteerd, kleur, onclick){
+  const kl = kleur||'var(--fcb-groen)';
+  const klLicht = kleur==='#dc2626'?'#fee2e2':'var(--fcb-groen-licht)';
+  return `<button onclick="${onclick}" style="display:flex;align-items:center;gap:10px;width:100%;padding:8px 10px;border-radius:10px;margin-bottom:5px;cursor:pointer;font-family:inherit;text-align:left;border:1.5px solid ${geselecteerd?kl:'transparent'};background:${geselecteerd?klLicht:'var(--bg)'}">
+    ${sp.foto?`<img src="${sp.foto}" style="width:32px;height:32px;border-radius:50%;object-fit:cover;flex-shrink:0" alt="">`:`<div style="width:32px;height:32px;border-radius:50%;background:var(--fcb-groen-licht);color:#1B5E20;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;flex-shrink:0">${sp.init}</div>`}
+    ${sp.nr?`<span class="nr-badge">${sp.nr}</span>`:''}
+    <span style="font-size:13px;font-weight:600;flex:1">${sp.naam}</span>
+    ${geselecteerd?`<i class="ti ti-check" style="color:${kl}"></i>`:''}
+  </button>`;
+}
 
 function registreerDoelpunt(wedstrijdId, kant, spelerId, assistId){
   if(blokkeerInArchief()) return;
@@ -2564,7 +2722,20 @@ function registreerWissel(wedstrijdId, uitId, inId){
   draw();
 }
 
-// Overlay voor doelpunt/wissel keuze
+// ---- Kaarten (geel/rood) ----
+function openKaart(wedstrijdId){ liveActie={type:'kaart', wedstrijdId, kleur:'geel', speler:null}; draw(); }
+function registreerKaart(wedstrijdId, kleur, spelerId){
+  if(blokkeerInArchief()) return;
+  const w = ensureWedstrijdVelden(wedstrijden.find(x=>x.id===wedstrijdId));
+  const min = Math.floor(klokSeconds()/60);
+  const sp = spelers.find(s=>s.id===Number(spelerId));
+  w.events.push({type:'kaart', min, kleur, speler:sp?sp.naam:'Onbekend'});
+  syncWedstrijdNaarDatabase(w);
+  liveActie=null;
+  draw();
+}
+
+// Overlay voor doelpunt/wissel/kaart keuze
 function renderLiveActie(){
   if(!liveActie) return '';
   const w = ensureWedstrijdVelden(wedstrijden.find(x=>x.id===liveActie.wedstrijdId));
@@ -2586,19 +2757,28 @@ function renderLiveActie(){
     let keuze='';
     if(liveActie.kant==='tegen'){
       keuze = `<button class="btn-green" style="width:100%;justify-content:center" onclick="registreerDoelpunt(${w.id},'tegen',null,null)">Tegendoelpunt registreren (${min}')</button>`;
+    } else if(!liveActie.speler){
+      // Stap 1: kies doelpuntenmaker
+      const spelerKnoppen = opVeld.map(sp=>liveSpelerKnop(sp, false, null, `liveActie.speler=${sp.id};draw()`)).join('');
+      keuze = `<div class="sec-lbl">Wie maakte het doelpunt?</div>${spelerKnoppen}`;
     } else {
-      const spelerKnoppen = opVeld.map(sp=>`
-        <button onclick="liveActie.speler=${sp.id};draw()" style="display:flex;align-items:center;gap:8px;width:100%;padding:9px 11px;border-radius:8px;margin-bottom:4px;cursor:pointer;font-family:inherit;text-align:left;border:1px solid ${Number(liveActie.speler)===sp.id?'var(--fcb-groen)':'transparent'};background:${Number(liveActie.speler)===sp.id?'var(--fcb-groen-licht)':'var(--bg)'}">
-          ${sp.nr?`<span class="nr-badge">${sp.nr}</span>`:''}<span style="font-size:13px;font-weight:600;flex:1">${sp.naam}</span>${Number(liveActie.speler)===sp.id?'<i class="ti ti-check" style="color:var(--fcb-groen)"></i>':''}
-        </button>`).join('');
-      const assistOpties = liveActie.speler ? `
-        <div class="sec-lbl" style="margin-top:1rem">Assist (optioneel)</div>
-        <select id="assistSelect" style="width:100%;padding:9px;border:1px solid var(--border);border-radius:8px;font-family:inherit;font-size:13px;margin-bottom:1rem">
-          <option value="geen">Geen assist</option>
-          ${opVeld.filter(s=>s.id!==Number(liveActie.speler)).map(s=>`<option value="${s.id}">${s.naam}</option>`).join('')}
-        </select>
-        <button class="btn-green" style="width:100%;justify-content:center" onclick="registreerDoelpunt(${w.id},'eigen',${liveActie.speler},document.getElementById('assistSelect').value)">Doelpunt registreren (${min}')</button>` : '';
-      keuze = `<div class="sec-lbl">Doelpuntenmaker</div>${spelerKnoppen}${assistOpties}`;
+      // Stap 2: kies assist (scherm ververst na stap 1, zoals gevraagd)
+      const maker = spelers.find(s=>s.id===Number(liveActie.speler));
+      const assistOpties = opVeld.filter(s=>s.id!==Number(liveActie.speler));
+      const geenAssistKnop = `<button onclick="liveActie.assist='geen';draw()" style="display:flex;align-items:center;gap:10px;width:100%;padding:8px 10px;border-radius:10px;margin-bottom:5px;cursor:pointer;font-family:inherit;text-align:left;border:1.5px solid ${liveActie.assist==='geen'?'var(--fcb-groen)':'transparent'};background:${liveActie.assist==='geen'?'var(--fcb-groen-licht)':'var(--bg)'}">
+        <div style="width:32px;height:32px;border-radius:50%;background:#e5e7eb;display:flex;align-items:center;justify-content:center;flex-shrink:0"><i class="ti ti-x" style="font-size:14px;color:var(--text-muted)"></i></div>
+        <span style="font-size:13px;font-weight:600;flex:1">Geen assist</span>${liveActie.assist==='geen'?'<i class="ti ti-check" style="color:var(--fcb-groen)"></i>':''}
+      </button>`;
+      const assistKnoppen = assistOpties.map(sp=>liveSpelerKnop(sp, liveActie.assist===sp.id, null, `liveActie.assist=${sp.id};draw()`)).join('');
+      const bevestig = liveActie.assist!==undefined && liveActie.assist!==null
+        ? `<button class="btn-green" style="width:100%;justify-content:center;margin-top:1rem" onclick="registreerDoelpunt(${w.id},'eigen',${liveActie.speler},'${liveActie.assist}')">Doelpunt registreren (${min}')</button>`
+        : '';
+      keuze = `<div style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:var(--fcb-groen-licht);border-radius:10px;margin-bottom:1rem">
+          ${maker.foto?`<img src="${maker.foto}" style="width:28px;height:28px;border-radius:50%;object-fit:cover" alt="">`:`<div style="width:28px;height:28px;border-radius:50%;background:var(--fcb-groen);color:white;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600">${maker.init}</div>`}
+          <span style="font-size:13px;font-weight:600;color:#1B5E20">${maker.naam} scoort</span>
+          <button onclick="liveActie.speler=null;liveActie.assist=null;draw()" style="margin-left:auto;background:none;border:none;color:#1B5E20;cursor:pointer;font-size:12px;text-decoration:underline">wijzig</button>
+        </div>
+        <div class="sec-lbl">Wie gaf de assist?</div>${geenAssistKnop}${assistKnoppen}${bevestig}`;
     }
 
     return liveOverlay(`Doelpunt — ${min}'`, eigenBody+keuze);
@@ -2611,12 +2791,29 @@ function renderLiveActie(){
     const opVeld = spelers.filter(s=>opVeldIds.includes(s.id));
     const opBank = spelers.filter(s=>(w.wisselBank||[]).map(Number).includes(s.id) && !ingevallen.includes(s.id));
 
-    const uitKnoppen = opVeld.map(sp=>`<button onclick="liveActie.uit=${sp.id};draw()" style="display:flex;align-items:center;gap:8px;width:100%;padding:9px 11px;border-radius:8px;margin-bottom:4px;cursor:pointer;font-family:inherit;text-align:left;border:1px solid ${Number(liveActie.uit)===sp.id?'#dc2626':'transparent'};background:${Number(liveActie.uit)===sp.id?'#fee2e2':'var(--bg)'}">${sp.nr?`<span class="nr-badge">${sp.nr}</span>`:''}<span style="font-size:13px;font-weight:600;flex:1">${sp.naam}</span>${Number(liveActie.uit)===sp.id?'<i class="ti ti-arrow-down" style="color:#dc2626"></i>':''}</button>`).join('');
-    const inKnoppen = opBank.length>0 ? opBank.map(sp=>`<button onclick="liveActie.in=${sp.id};draw()" style="display:flex;align-items:center;gap:8px;width:100%;padding:9px 11px;border-radius:8px;margin-bottom:4px;cursor:pointer;font-family:inherit;text-align:left;border:1px solid ${Number(liveActie.in)===sp.id?'var(--fcb-groen)':'transparent'};background:${Number(liveActie.in)===sp.id?'var(--fcb-groen-licht)':'var(--bg)'}">${sp.nr?`<span class="nr-badge">${sp.nr}</span>`:''}<span style="font-size:13px;font-weight:600;flex:1">${sp.naam}</span>${Number(liveActie.in)===sp.id?'<i class="ti ti-arrow-up" style="color:var(--fcb-groen)"></i>':''}</button>`).join('') : '<div style="font-size:12px;color:var(--text-light);padding:8px">Geen wisselspelers beschikbaar</div>';
+    const uitKnoppen = opVeld.map(sp=>liveSpelerKnop(sp, Number(liveActie.uit)===sp.id, '#dc2626', `liveActie.uit=${sp.id};draw()`)).join('');
+    const inKnoppen = opBank.length>0 ? opBank.map(sp=>liveSpelerKnop(sp, Number(liveActie.in)===sp.id, null, `liveActie.in=${sp.id};draw()`)).join('') : '<div style="font-size:12px;color:var(--text-light);padding:8px">Geen wisselspelers beschikbaar</div>';
 
     const bevestig = (liveActie.uit&&liveActie.in) ? `<button class="btn-green" style="width:100%;justify-content:center;margin-top:1rem" onclick="registreerWissel(${w.id},${liveActie.uit},${liveActie.in})">Wissel doorvoeren (${min}')</button>` : '';
 
     return liveOverlay(`Wissel — ${min}'`, `<div class="sec-lbl" style="color:#dc2626">Speler eruit</div>${uitKnoppen}<div class="sec-lbl" style="margin-top:1rem;color:var(--fcb-groen)">Speler erin</div>${inKnoppen}${bevestig}`);
+  }
+
+  if(liveActie.type==='kaart'){
+    const uitgewisseld = new Set((w.wissels||[]).map(ws=>Number(ws.uit)));
+    const ingevallen = (w.wissels||[]).map(ws=>Number(ws.in));
+    const opVeldIds = [...Object.values(w.opstellingPos).filter(Boolean).map(Number), ...ingevallen].filter(id=>!uitgewisseld.has(id));
+    const opVeld = spelers.filter(s=>opVeldIds.includes(s.id));
+
+    const kleurKnoppen = `<div style="display:flex;gap:6px;margin-bottom:1rem">
+      <button onclick="liveActie.kleur='geel';draw()" style="flex:1;padding:8px;border-radius:8px;cursor:pointer;font-family:inherit;font-size:13px;font-weight:600;border:1.5px solid ${liveActie.kleur==='geel'?'#ca8a04':'var(--border)'};background:${liveActie.kleur==='geel'?'#fef9c3':'#fff'};color:${liveActie.kleur==='geel'?'#854d0e':'var(--text-muted)'}"><span style="display:inline-block;width:11px;height:15px;background:#facc15;border-radius:2px;margin-right:5px;vertical-align:-2px"></span>Geel</button>
+      <button onclick="liveActie.kleur='rood';draw()" style="flex:1;padding:8px;border-radius:8px;cursor:pointer;font-family:inherit;font-size:13px;font-weight:600;border:1.5px solid ${liveActie.kleur==='rood'?'#dc2626':'var(--border)'};background:${liveActie.kleur==='rood'?'#fee2e2':'#fff'};color:${liveActie.kleur==='rood'?'#991b1b':'var(--text-muted)'}"><span style="display:inline-block;width:11px;height:15px;background:#dc2626;border-radius:2px;margin-right:5px;vertical-align:-2px"></span>Rood</button>
+    </div>`;
+    const kaartKleur = liveActie.kleur==='rood'?'#dc2626':'#ca8a04';
+    const spelerKnoppen = opVeld.map(sp=>liveSpelerKnop(sp, Number(liveActie.speler)===sp.id, kaartKleur, `liveActie.speler=${sp.id};draw()`)).join('');
+    const bevestig = liveActie.speler ? `<button class="btn-green" style="width:100%;justify-content:center;margin-top:1rem" onclick="registreerKaart(${w.id},'${liveActie.kleur}',${liveActie.speler})">Kaart registreren (${min}')</button>` : '';
+
+    return liveOverlay(`Kaart — ${min}'`, `${kleurKnoppen}<div class="sec-lbl">Voor welke speler?</div>${spelerKnoppen}${bevestig}`);
   }
   return '';
 }
@@ -5109,6 +5306,12 @@ function verwijderItemVeld(trainingId, oefId, itemIdx){
 }
 
 // ---- START ----
+if(isFanLivePad()){
+  // Publieke fan-weergave: geen sidebar/tabbar, geen normale app-data nodig.
+  document.body.classList.add('fan-live-modus');
+  initFanLivePagina();
+} else {
+
 const { pagina: _startPagina, code: _startCode } = ontleedUrl(); // bewaar de eventuele code VOORDAT we de URL normaliseren
 page = _startPagina; // toon direct de juiste hoofdpagina op basis van het huidige URL-pad
 // Als het pad niet overeenkwam met een geldige pagina (bv. verkeerd getypt of een oude link),
@@ -5146,6 +5349,8 @@ laadSeizoenenUitDatabase()
       draw();
     }
   });
+
+} // einde van de 'else' tak (normale app-modus, als tegenhanger van isFanLivePad())
 </script>
 </body>
 </html>
