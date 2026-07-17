@@ -957,12 +957,26 @@ function syncSpeelminuten(w){
 // ============================================================
 // RENDER
 // ============================================================
-function setPage(p, behoudSelectie){
+function setPage(p, behoudSelectie, viaPopstate){
   // "meer" op mobiel = toon een menu met de secties die niet in de tabbar passen
   if(p==='meer'){ toonMeerMenu(); return; }
   page=p;
   if(!behoudSelectie){ activeSpelerId=null; activeWedstrijdId=null; }
-  // Actieve status op sidebar EN tabbar via data-page
+  // URL bijwerken, tenzij we hier komen doordat de gebruiker net op de browser-terugknop klikte
+  // (dan is de URL al veranderd en zou een nieuwe pushState de terug-knop juist verstoren)
+  if(!viaPopstate){
+    const pad = p==='dashboard' ? '/' : '/'+p;
+    if(window.location.pathname !== pad){
+      window.history.pushState({page:p}, '', pad);
+    }
+  }
+  werkActieveNavigatieBij(p);
+  window.scrollTo(0,0);
+  draw();
+}
+
+// Markeert het juiste sidebar/tabbar-item als actief. Los van setPage bruikbaar (bv. bij opstarten).
+function werkActieveNavigatieBij(p){
   document.querySelectorAll('.sb-item[data-page]').forEach(b=>{
     b.classList.toggle('active', b.dataset.page===p);
   });
@@ -972,9 +986,20 @@ function setPage(p, behoudSelectie){
     if(b.dataset.page==='meer') b.classList.toggle('active', !inTabbar);
     else b.classList.toggle('active', b.dataset.page===p);
   });
-  window.scrollTo(0,0);
-  draw();
 }
+
+// Vertaalt het huidige URL-pad naar een pagina-naam. Onbekende paden vallen terug op het dashboard.
+const GELDIGE_PAGINAS = ['dashboard','spelers','wedstrijden','statistieken','ontwikkeling','rollen','trainingen'];
+function paginaVanUrl(){
+  const pad = window.location.pathname.replace(/^\/|\/$/g,''); // slashes aan begin/eind weg
+  if(pad===''){ return 'dashboard'; }
+  return GELDIGE_PAGINAS.includes(pad) ? pad : 'dashboard';
+}
+
+// Reageer op de browser terug/vooruit-knoppen
+window.addEventListener('popstate', ()=>{
+  setPage(paginaVanUrl(), false, true);
+});
 
 function toonMeerMenu(){
   // Eenvoudig overlay-menu voor de secties die niet in de mobiele tabbar staan
@@ -4951,7 +4976,12 @@ function verwijderItemVeld(trainingId, oefId, itemIdx){
 }
 
 // ---- START ----
+page = paginaVanUrl(); // toon direct de juiste pagina op basis van het huidige URL-pad
+// Als het pad niet overeenkwam met een geldige pagina (bv. verkeerd getypt of een oude link),
+// normaliseren we de adresbalk naar de daadwerkelijk getoonde pagina.
+window.history.replaceState({page}, '', page==='dashboard' ? '/' : '/'+page);
 draw(); // teken direct met de ingebouwde standaardlijst, zodat het scherm niet leeg is
+werkActieveNavigatieBij(page);
 laadInstellingenUitDatabase(); // clubnaam en logo (onafhankelijk van seizoenen)
 
 // Volgorde is belangrijk: eerst het actieve seizoen weten, dan pas spelers verrijken, dan wedstrijden/trainingen filteren
