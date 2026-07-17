@@ -589,7 +589,7 @@ function wedstrijdNaarRij(w){
     speelminuten: w.speelminuten||{}, seizoen_id: w.seizoenId,
     public_code: w.publicCode || genereerPublicCode(),
     klok_fase: w.klokFase||'voor', klok_start_tijd: w.klokStartTijd||null, klok_verstreken: w.klokVerstreken||0,
-    tegenstander_logo: w.tegenstanderLogo||null
+    tegenstander_logo: w.tegenstanderLogo||null, tegenstander_id: w.tegenstanderId||null
   };
 }
 
@@ -602,7 +602,7 @@ function rijNaarWedstrijd(r){
     wisselBank:r.wissel_bank||[], wissels:r.wissels||[],
     speelminuten:r.speelminuten||{}, seizoenId:r.seizoen_id, publicCode:r.public_code,
     klokFase:r.klok_fase||'voor', klokStartTijd:r.klok_start_tijd||null, klokVerstreken:r.klok_verstreken||0,
-    tegenstanderLogo:r.tegenstander_logo||null
+    tegenstanderLogo:r.tegenstander_logo||null, tegenstanderId:r.tegenstander_id||null
   };
 }
 
@@ -645,6 +645,41 @@ function syncWedstrijdNaarDatabase(w){
 async function verwijderWedstrijdUitDatabase(id){
   const { error } = await db.from('wedstrijden').delete().eq('id', id);
   if(error){ console.error('Fout bij verwijderen wedstrijd:', error); showToast('Verwijderen wedstrijd mislukt', 'fout'); }
+}
+
+// ============================================================
+// SUPABASE: laden en synchroniseren van tegenstanders (herbruikbare clubs met logo)
+// ============================================================
+let tegenstanders = []; // {id, naam, logo}
+
+async function laadTegenstandersUitDatabase(){
+  const { data, error } = await db.from('tegenstanders').select('*').order('naam');
+  if(error){ console.error('Fout bij laden tegenstanders:', error.message||error, error); return; }
+  tegenstanders = data||[];
+}
+
+// Slaat een tegenstander op (nieuw of bestaand). Geeft het (mogelijk net aangemaakte) record terug.
+async function slaTegenstanderOp(naam, logo){
+  const bestaand = tegenstanders.find(t=>t.naam.toLowerCase()===naam.toLowerCase());
+  if(bestaand){
+    if(logo && logo!==bestaand.logo){
+      const { error } = await db.from('tegenstanders').update({logo}).eq('id', bestaand.id);
+      if(error){ console.error('Fout bij bijwerken tegenstander-logo:', error.message||error, error); }
+      else bestaand.logo = logo;
+    }
+    return bestaand;
+  }
+  const { data, error } = await db.from('tegenstanders').insert({naam, logo:logo||null}).select().maybeSingle();
+  if(error){ console.error('Fout bij aanmaken tegenstander:', error.message||error, error); showToast('Tegenstander opslaan mislukt: '+(error.message||'controleer verbinding'), 'fout'); return null; }
+  if(data) tegenstanders.push(data);
+  return data;
+}
+
+async function verwijderTegenstanderUitDatabase(id){
+  const { error } = await db.from('tegenstanders').delete().eq('id', id);
+  if(error){ console.error('Fout bij verwijderen tegenstander:', error.message||error, error); showToast('Verwijderen mislukt: kan zijn dat deze tegenstander nog aan wedstrijden gekoppeld is', 'fout'); return false; }
+  tegenstanders = tegenstanders.filter(t=>t.id!==id);
+  return true;
 }
 
 // ============================================================
@@ -1302,6 +1337,7 @@ function draw(){
   if(typeof renderLiveActie==='function' && liveActie) html+=renderLiveActie();
   if(spelerskeuzeSeizoenId) html+=renderSpelerskeuzeVoorSeizoen();
   if(verwijderSeizoenId) html+=renderVerwijderSeizoenDialoog();
+  if(verwijderTegenstanderId) html+=renderVerwijderTegenstanderDialoog();
   el.innerHTML=html;
   // Fix stroke-dasharray via DOM na innerHTML (innerHTML parse respecteert geen SVG namespace attrs)
   document.querySelectorAll('g[data-streep="1"] path[stroke="white"]').forEach(p => {
@@ -2013,15 +2049,15 @@ let wedstrijdCategorieen=['Competitie','Vriendschappelijk','Beker'];
 let nextWedstrijdId=10;
 let bewerkWedstrijdId=null; // id van de wedstrijd die momenteel bewerkt wordt (null = niet aan het bewerken)
 
+let nieuweWGekozenTeg = null; // {id, naam, logo} zodra een bestaande tegenstander gekozen is
+let nieuweWNieuwLogo = null;  // logo voor een GEHEEL NIEUWE tegenstander (nog niet in de database)
+
 function renderNieuweWedstrijd(){
   return`<div style="background:#f0fdf4;border:1px solid var(--fcb-groen);border-radius:var(--radius);padding:1rem;margin-bottom:1rem">
     <div style="font-size:13px;font-weight:600;color:var(--fcb-groen);margin-bottom:.75rem;display:flex;align-items:center;gap:6px"><i class="ti ti-plus" style="font-size:15px"></i> Nieuwe wedstrijd</div>
     <div class="form-grid" style="margin-bottom:.75rem">
       <div><label class="field-label">Datum</label><input type="date" id="nw-datum" class="field-input"></div>
       <div><label class="field-label">Aanvangstijd</label><input type="time" id="nw-tijd" class="field-input" value="14:30"></div>
-      <div><label class="field-label">Tegenstander</label><input type="text" id="nw-teg" class="field-input" placeholder="bijv. Ajax Amsterdam" list="tegenstanderList">
-        <datalist id="tegenstanderList">${[...new Set(wedstrijden.map(w=>w.teg))].map(t=>`<option value="${t}">`).join('')}</datalist>
-      </div>
       <div><label class="field-label">Locatie</label>
         <select id="nw-loc" class="field-input"><option value="thuis">Thuis</option><option value="uit">Uit</option></select>
       </div>
@@ -2030,50 +2066,116 @@ function renderNieuweWedstrijd(){
       </div>
     </div>
     <div style="margin-bottom:.75rem">
-      <label class="field-label">Logo tegenstander (optioneel)</label>
-      <div style="display:flex;align-items:center;gap:10px;margin-top:4px">
-        <div id="nw-logo-preview" style="width:44px;height:44px;border-radius:8px;background:var(--bg);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;overflow:hidden;flex-shrink:0">
-          <i class="ti ti-shield" style="font-size:18px;color:var(--text-light)"></i>
-        </div>
-        <input type="file" id="nw-logo-input" accept="image/*" style="display:none" onchange="uploadNieuweWedstrijdLogo(event)">
-        <button type="button" class="btn-outline" style="font-size:12px;padding:5px 12px" onclick="document.getElementById('nw-logo-input').click()"><i class="ti ti-upload" style="font-size:13px"></i> Logo kiezen</button>
-      </div>
+      <label class="field-label">Tegenstander</label>
+      ${renderTegenstanderKiezer('nw')}
     </div>
     <div style="display:flex;gap:6px;justify-content:flex-end">
-      <button class="btn-outline" style="font-size:12px;padding:5px 12px" onclick="toonNieuweWedstrijd=false;nieuweWTegLogo=null;draw()">Annuleren</button>
+      <button class="btn-outline" style="font-size:12px;padding:5px 12px" onclick="toonNieuweWedstrijd=false;nieuweWGekozenTeg=null;nieuweWNieuwLogo=null;draw()">Annuleren</button>
       <button class="btn-green" style="font-size:12px;padding:5px 12px" onclick="slaaNieuweWedstrijdOp()"><i class="ti ti-check" style="font-size:12px"></i> Opslaan</button>
     </div>
   </div>`;
 }
 
-let nieuweWTegLogo = null; // tijdelijk, tot de wedstrijd is opgeslagen
-async function uploadNieuweWedstrijdLogo(e){
+// Herbruikbare tegenstander-zoeker: typen filtert tegenstanders; kiezen toont het logo;
+// geen match -> optie om een nieuwe tegenstander (met eigen logo) aan te maken.
+// prefix onderscheidt de 'nieuwe wedstrijd' (nw) en 'bewerk wedstrijd' (bw) contexten.
+function renderTegenstanderKiezer(prefix){
+  const gekozen = prefix==='nw' ? nieuweWGekozenTeg : bewerkWGekozenTeg;
+  const nieuwLogo = prefix==='nw' ? nieuweWNieuwLogo : bewerkWNieuwLogo;
+  if(gekozen){
+    return `<div style="display:flex;align-items:center;gap:10px;padding:8px 10px;background:var(--white);border:1px solid var(--border);border-radius:var(--radius)">
+      <div style="width:36px;height:36px;border-radius:6px;background:var(--bg);display:flex;align-items:center;justify-content:center;overflow:hidden;flex-shrink:0">
+        ${gekozen.logo?`<img src="${gekozen.logo}" style="width:100%;height:100%;object-fit:cover">`:`<i class="ti ti-shield" style="font-size:16px;color:var(--text-light)"></i>`}
+      </div>
+      <span style="font-size:13px;font-weight:600;flex:1">${gekozen.naam}</span>
+      <button type="button" onclick="wijzigTegenstanderKeuze('${prefix}')" style="background:none;border:none;color:var(--fcb-groen);cursor:pointer;font-size:12px;text-decoration:underline">wijzig</button>
+    </div>`;
+  }
+  return `<div>
+    <input type="text" id="${prefix}-teg-zoek" class="field-input" placeholder="Zoek of typ een nieuwe tegenstander…" oninput="filterTegenstanders('${prefix}')" autocomplete="off">
+    <div id="${prefix}-teg-suggesties" style="margin-top:4px;max-height:160px;overflow-y:auto"></div>
+    <div id="${prefix}-teg-nieuw" style="margin-top:8px;display:none">
+      <div style="display:flex;align-items:center;gap:10px">
+        <div id="${prefix}-nieuw-logo-preview" style="width:36px;height:36px;border-radius:6px;background:var(--bg);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;overflow:hidden;flex-shrink:0">
+          ${nieuwLogo?`<img src="${nieuwLogo}" style="width:100%;height:100%;object-fit:cover">`:`<i class="ti ti-shield" style="font-size:15px;color:var(--text-light)"></i>`}
+        </div>
+        <input type="file" id="${prefix}-nieuw-logo-input" accept="image/*" style="display:none" onchange="uploadNieuweTegenstanderLogo(event,'${prefix}')">
+        <button type="button" class="btn-outline" style="font-size:12px;padding:5px 12px" onclick="document.getElementById('${prefix}-nieuw-logo-input').click()"><i class="ti ti-upload" style="font-size:13px"></i> Logo toevoegen (optioneel)</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+function filterTegenstanders(prefix){
+  const veld = document.getElementById(`${prefix}-teg-zoek`);
+  const nieuwBlok = document.getElementById(`${prefix}-teg-nieuw`);
+  const zoek = (veld?.value||'').trim().toLowerCase();
+  const suggestiesEl = document.getElementById(`${prefix}-teg-suggesties`);
+  if(!zoek){ suggestiesEl.innerHTML=''; nieuwBlok.style.display='none'; return; }
+  const matches = tegenstanders.filter(t=>t.naam.toLowerCase().includes(zoek)).slice(0,6);
+  const exacteMatch = tegenstanders.some(t=>t.naam.toLowerCase()===zoek);
+  suggestiesEl.innerHTML = matches.map(t=>`
+    <div onclick="kiesTegenstander('${prefix}',${t.id})" style="display:flex;align-items:center;gap:10px;padding:7px 8px;border-radius:8px;cursor:pointer" onmouseover="this.style.background='var(--bg)'" onmouseout="this.style.background='transparent'">
+      <div style="width:28px;height:28px;border-radius:6px;background:var(--bg);display:flex;align-items:center;justify-content:center;overflow:hidden;flex-shrink:0">
+        ${t.logo?`<img src="${t.logo}" style="width:100%;height:100%;object-fit:cover">`:`<i class="ti ti-shield" style="font-size:13px;color:var(--text-light)"></i>`}
+      </div>
+      <span style="font-size:13px">${t.naam}</span>
+    </div>`).join('');
+  // Geen exacte match: toon de mogelijkheid om deze naam als nieuwe tegenstander te gebruiken/aan te maken
+  nieuwBlok.style.display = exacteMatch ? 'none' : 'block';
+}
+
+function kiesTegenstander(prefix, tegenstanderId){
+  const t = tegenstanders.find(x=>x.id===tegenstanderId);
+  if(!t) return;
+  if(prefix==='nw') nieuweWGekozenTeg = t; else bewerkWGekozenTeg = t;
+  draw();
+}
+function wijzigTegenstanderKeuze(prefix){
+  if(prefix==='nw'){ nieuweWGekozenTeg=null; nieuweWNieuwLogo=null; } else { bewerkWGekozenTeg=null; bewerkWNieuwLogo=null; }
+  draw();
+}
+async function uploadNieuweTegenstanderLogo(e, prefix){
   const file=e.target.files[0];
   if(!file) return;
   const r=new FileReader();
   r.onload=async ev=>{
-    nieuweWTegLogo = await comprimeerAfbeelding(ev.target.result, 200);
-    const preview=document.getElementById('nw-logo-preview');
-    if(preview) preview.innerHTML = `<img src="${nieuweWTegLogo}" style="width:100%;height:100%;object-fit:cover">`;
+    const gecomprimeerd = await comprimeerAfbeelding(ev.target.result, 200);
+    if(prefix==='nw') nieuweWNieuwLogo=gecomprimeerd; else bewerkWNieuwLogo=gecomprimeerd;
+    const preview=document.getElementById(`${prefix}-nieuw-logo-preview`);
+    if(preview) preview.innerHTML = `<img src="${gecomprimeerd}" style="width:100%;height:100%;object-fit:cover">`;
   };
   r.readAsDataURL(file);
 }
 
-function slaaNieuweWedstrijdOp(){
+// Bepaalt, op basis van de kiezer-state, welke tegenstander (bestaand of gloednieuw) gebruikt moet
+// worden bij het opslaan van een wedstrijd. Maakt zo nodig een nieuw tegenstander-record aan.
+async function bepaalTegenstanderVoorOpslaan(prefix){
+  const gekozen = prefix==='nw' ? nieuweWGekozenTeg : bewerkWGekozenTeg;
+  if(gekozen) return gekozen; // al een bestaande tegenstander gekozen
+  const veld = document.getElementById(`${prefix}-teg-zoek`);
+  const naam = (veld?.value||'').trim();
+  if(!naam) return null;
+  const nieuwLogo = prefix==='nw' ? nieuweWNieuwLogo : bewerkWNieuwLogo;
+  return await slaTegenstanderOp(naam, nieuwLogo);
+}
+
+async function slaaNieuweWedstrijdOp(){
   if(blokkeerInArchief()) return;
   const datum=document.getElementById('nw-datum')?.value;
   const tijd=document.getElementById('nw-tijd')?.value||'14:30';
-  const teg=document.getElementById('nw-teg')?.value.trim();
   const loc=document.getElementById('nw-loc')?.value;
   const type=document.getElementById('nw-type')?.value;
-  if(!datum||!teg) return;
-  const nieuw={id:nextWedstrijdId++,datum,tijd,teg,thuis:loc==='thuis',formatie:nieuweW.formatie,type,score:null,status:'gepland',opstelling:[1,3,5,6,10,11,13,16,17,19,21],bank:[],events:[],seizoenId:activeSeizoenId(),tegenstanderLogo:nieuweWTegLogo};
+  if(!datum) return;
+  const teg = await bepaalTegenstanderVoorOpslaan('nw');
+  if(!teg){ showToast('Kies of typ een tegenstander', 'fout'); return; }
+  const nieuw={id:nextWedstrijdId++,datum,tijd,teg:teg.naam,thuis:loc==='thuis',formatie:nieuweW.formatie,type,score:null,status:'gepland',opstelling:[1,3,5,6,10,11,13,16,17,19,21],bank:[],events:[],seizoenId:activeSeizoenId(),tegenstanderLogo:teg.logo,tegenstanderId:teg.id};
   wedstrijden.push(nieuw);
   wedstrijden.sort((a,b)=>a.datum.localeCompare(b.datum));
   syncWedstrijdNaarDatabase(nieuw);
   toonNieuweWedstrijd=false;
   nieuweW={datum:'',teg:'',thuis:true,formatie:'4-3-3',type:'Competitie'};
-  nieuweWTegLogo=null;
+  nieuweWGekozenTeg=null; nieuweWNieuwLogo=null;
   showToast('Wedstrijd toegevoegd!');
 }
 
@@ -2093,6 +2195,43 @@ async function deelLiveLink(wedstrijdId){
     // Clipboard API kan geweigerd worden (bv. geen HTTPS of geen toestemming) -- toon de link dan gewoon
     showToast('Kon niet automatisch kopiëren: '+link, 'fout');
   }
+}
+
+// ---- Tegenstander verwijderen (uit het beheer, niet gekoppeld aan een specifieke wedstrijd) ----
+let verwijderTegenstanderId=null;
+function vraagVerwijderTegenstanderBevestiging(id){
+  verwijderTegenstanderId=id;
+  draw();
+}
+function sluitVerwijderTegenstanderDialoog(){ verwijderTegenstanderId=null; draw(); }
+async function bevestigVerwijderTegenstander(id){
+  const t = tegenstanders.find(x=>x.id===id);
+  if(!t) return;
+  const gelukt = await verwijderTegenstanderUitDatabase(id);
+  verwijderTegenstanderId=null;
+  if(gelukt) showToast(`${t.naam} verwijderd`);
+  draw();
+}
+function renderVerwijderTegenstanderDialoog(){
+  if(!verwijderTegenstanderId) return '';
+  const t = tegenstanders.find(x=>x.id===verwijderTegenstanderId);
+  if(!t) return '';
+  const aantalWedstrijden = wedstrijden.filter(w=>w.tegenstanderId===t.id).length;
+  return`<div style="position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;z-index:200;padding:1rem">
+    <div style="background:var(--white);border-radius:var(--radius-lg);padding:1.25rem;width:100%;max-width:400px">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+        <i class="ti ti-alert-triangle" style="font-size:20px;color:#dc2626"></i>
+        <div style="font-size:15px;font-weight:700">${t.naam} verwijderen?</div>
+      </div>
+      <div style="font-size:13px;color:var(--text-muted);margin-bottom:1rem">
+        ${aantalWedstrijden>0?`Let op: ${aantalWedstrijden} wedstrijd${aantalWedstrijden===1?'':'en'} verwijst nog naar deze tegenstander. De naam/logo bij die wedstrijden blijft behouden, alleen de koppeling met dit tegenstander-record verdwijnt.`:'Deze tegenstander wordt uit de lijst verwijderd.'}
+      </div>
+      <div style="display:flex;gap:6px;justify-content:flex-end">
+        <button class="btn-outline" style="font-size:12px;padding:5px 12px" onclick="sluitVerwijderTegenstanderDialoog()">Annuleren</button>
+        <button class="btn-danger" style="font-size:12px;padding:5px 12px" onclick="bevestigVerwijderTegenstander(${t.id})"><i class="ti ti-trash" style="font-size:12px"></i> Verwijderen</button>
+      </div>
+    </div>
+  </div>`;
 }
 
 function vraagVerwijderWedstrijdBevestiging(wedstrijdId){
@@ -2130,19 +2269,32 @@ function bevestigVerwijderWedstrijd(wedstrijdId){
 
 function openBewerkWedstrijd(wedstrijdId){
   bewerkWedstrijdId=wedstrijdId;
+  bewerkWGekozenTeg=null; bewerkWNieuwLogo=null; // reset, wordt in renderBewerkWedstrijd opnieuw voorgevuld met de huidige tegenstander
   draw();
 }
 function sluitBewerkWedstrijd(){
   bewerkWedstrijdId=null;
+  bewerkWGekozenTeg=null; bewerkWNieuwLogo=null;
   draw();
 }
+let bewerkWGekozenTeg = null; // {id, naam, logo} -- voorgevuld met de huidige tegenstander van de wedstrijd
+let bewerkWNieuwLogo = null;
+
 function renderBewerkWedstrijd(w){
+  // Bij het openen van het bewerkformulier: de huidige tegenstander alvast als 'gekozen' zetten,
+  // zodat de trainer 'm niet per ongeluk opnieuw moet opzoeken.
+  if(bewerkWGekozenTeg===null && w.tegenstanderId){
+    const t = tegenstanders.find(x=>x.id===w.tegenstanderId);
+    if(t) bewerkWGekozenTeg = t;
+  } else if(bewerkWGekozenTeg===null && w.teg){
+    // Oudere wedstrijd zonder tegenstander_id (van vóór deze functie): toon in elk geval de naam+logo als 'gekozen'
+    bewerkWGekozenTeg = {id:null, naam:w.teg, logo:w.tegenstanderLogo||null};
+  }
   return`<div style="background:#f0fdf4;border:1px solid var(--fcb-groen);border-radius:var(--radius);padding:1rem;margin-bottom:1rem">
     <div style="font-size:13px;font-weight:600;color:var(--fcb-groen);margin-bottom:.75rem;display:flex;align-items:center;gap:6px"><i class="ti ti-pencil" style="font-size:15px"></i> Wedstrijd bewerken</div>
     <div class="form-grid" style="margin-bottom:.75rem">
       <div><label class="field-label">Datum</label><input type="date" id="bw-datum" class="field-input" value="${w.datum||''}"></div>
       <div><label class="field-label">Aanvangstijd</label><input type="time" id="bw-tijd" class="field-input" value="${w.tijd||'14:30'}"></div>
-      <div><label class="field-label">Tegenstander</label><input type="text" id="bw-teg" class="field-input" value="${w.teg||''}" placeholder="bijv. Ajax Amsterdam"></div>
       <div><label class="field-label">Locatie</label>
         <select id="bw-loc" class="field-input">
           <option value="thuis"${w.thuis?' selected':''}>Thuis</option>
@@ -2154,14 +2306,8 @@ function renderBewerkWedstrijd(w){
       </div>
     </div>
     <div style="margin-bottom:.75rem">
-      <label class="field-label">Logo tegenstander (optioneel)</label>
-      <div style="display:flex;align-items:center;gap:10px;margin-top:4px">
-        <div id="bw-logo-preview" style="width:44px;height:44px;border-radius:8px;background:var(--bg);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;overflow:hidden;flex-shrink:0">
-          ${w.tegenstanderLogo?`<img src="${w.tegenstanderLogo}" style="width:100%;height:100%;object-fit:cover">`:`<i class="ti ti-shield" style="font-size:18px;color:var(--text-light)"></i>`}
-        </div>
-        <input type="file" id="bw-logo-input" accept="image/*" style="display:none" onchange="uploadBewerkWedstrijdLogo(event)">
-        <button type="button" class="btn-outline" style="font-size:12px;padding:5px 12px" onclick="document.getElementById('bw-logo-input').click()"><i class="ti ti-upload" style="font-size:13px"></i> Logo wijzigen</button>
-      </div>
+      <label class="field-label">Tegenstander</label>
+      ${renderTegenstanderKiezer('bw')}
     </div>
     <div style="display:flex;gap:6px;justify-content:flex-end">
       <button class="btn-outline" style="font-size:12px;padding:5px 12px" onclick="sluitBewerkWedstrijd()">Annuleren</button>
@@ -2170,35 +2316,23 @@ function renderBewerkWedstrijd(w){
   </div>`;
 }
 
-let bewerkWTegLogo = undefined; // undefined = niet gewijzigd (behoud bestaande), anders de nieuwe (of null bij verwijderen) waarde
-async function uploadBewerkWedstrijdLogo(e){
-  const file=e.target.files[0];
-  if(!file) return;
-  const r=new FileReader();
-  r.onload=async ev=>{
-    bewerkWTegLogo = await comprimeerAfbeelding(ev.target.result, 200);
-    const preview=document.getElementById('bw-logo-preview');
-    if(preview) preview.innerHTML = `<img src="${bewerkWTegLogo}" style="width:100%;height:100%;object-fit:cover">`;
-  };
-  r.readAsDataURL(file);
-}
-
-function slaaBewerkWedstrijdOp(wedstrijdId){
+async function slaaBewerkWedstrijdOp(wedstrijdId){
   if(blokkeerInArchief()) return;
   const w=wedstrijden.find(x=>x.id===wedstrijdId);
   if(!w) return;
   const datum=document.getElementById('bw-datum')?.value;
   const tijd=document.getElementById('bw-tijd')?.value||'14:30';
-  const teg=document.getElementById('bw-teg')?.value.trim();
   const loc=document.getElementById('bw-loc')?.value;
   const type=document.getElementById('bw-type')?.value;
-  if(!datum||!teg) return;
-  w.datum=datum; w.tijd=tijd; w.teg=teg; w.thuis=(loc==='thuis'); w.type=type;
-  if(bewerkWTegLogo!==undefined) w.tegenstanderLogo=bewerkWTegLogo; // alleen aanpassen als er iets geüpload is
+  if(!datum) return;
+  const teg = await bepaalTegenstanderVoorOpslaan('bw');
+  if(!teg){ showToast('Kies of typ een tegenstander', 'fout'); return; }
+  w.datum=datum; w.tijd=tijd; w.teg=teg.naam; w.thuis=(loc==='thuis'); w.type=type;
+  w.tegenstanderLogo=teg.logo; w.tegenstanderId=teg.id;
   wedstrijden.sort((a,b)=>a.datum.localeCompare(b.datum));
   syncWedstrijdNaarDatabase(w);
   bewerkWedstrijdId=null;
-  bewerkWTegLogo=undefined;
+  bewerkWGekozenTeg=null; bewerkWNieuwLogo=null;
   showToast('Wedstrijd bijgewerkt!');
 }
 
@@ -2794,12 +2928,12 @@ function sluitLiveActie(){ liveActie=null; draw(); }
 function liveSpelerKnop(sp, geselecteerd, kleur, onclick){
   const kl = kleur||'var(--fcb-groen)';
   const klLicht = kleur==='#dc2626'?'#fee2e2':'var(--fcb-groen-licht)';
-  return `<button onclick="${onclick}" style="display:flex;flex-direction:column;align-items:center;gap:6px;padding:10px 6px;border-radius:12px;cursor:pointer;font-family:inherit;text-align:center;border:2px solid ${geselecteerd?kl:'transparent'};background:${geselecteerd?klLicht:'var(--bg)'}">
-    <div style="position:relative">
-      ${sp.foto?`<img src="${sp.foto}" style="width:56px;height:56px;border-radius:50%;object-fit:cover" alt="">`:`<div style="width:56px;height:56px;border-radius:50%;background:var(--fcb-groen-licht);color:#1B5E20;display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:600">${sp.init}</div>`}
+  return `<button type="button" onclick="${onclick}" style="display:flex;flex-direction:column;align-items:center;gap:6px;padding:10px 6px;border-radius:12px;cursor:pointer;font-family:inherit;text-align:center;border:2px solid ${geselecteerd?kl:'transparent'};background:${geselecteerd?klLicht:'var(--bg)'}">
+    <div style="position:relative;pointer-events:none">
+      ${sp.foto?`<img src="${sp.foto}" draggable="false" style="width:56px;height:56px;border-radius:50%;object-fit:cover;-webkit-user-drag:none;pointer-events:none" alt="">`:`<div style="width:56px;height:56px;border-radius:50%;background:var(--fcb-groen-licht);color:#1B5E20;display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:600">${sp.init}</div>`}
       ${geselecteerd?`<div style="position:absolute;bottom:-2px;right:-2px;width:20px;height:20px;border-radius:50%;background:${kl};display:flex;align-items:center;justify-content:center;border:2px solid white"><i class="ti ti-check" style="font-size:11px;color:white"></i></div>`:''}
     </div>
-    <span style="font-size:11.5px;font-weight:600;line-height:1.2;word-break:break-word">${sp.nr?`<span style="color:var(--text-muted);font-weight:500">#${sp.nr}</span> `:''}${sp.naam}</span>
+    <span style="font-size:11.5px;font-weight:600;line-height:1.2;word-break:break-word;pointer-events:none">${sp.nr?`<span style="color:var(--text-muted);font-weight:500">#${sp.nr}</span> `:''}${sp.naam}</span>
   </button>`;
 }
 // Zet een lijst spelerkaarten in een grid van 3 kolommen
@@ -2856,7 +2990,7 @@ function registreerKaartTegenstander(wedstrijdId, kleur, rugnummer){
   if(!nr) return;
   const w = ensureWedstrijdVelden(wedstrijden.find(x=>x.id===wedstrijdId));
   const min = Math.floor(klokSeconds()/60)+1;
-  w.events.push({type:'kaart', min, kleur, tegen:true, rugnummer:nr, speler:`${w.teg} #${nr}`});
+  w.events.push({type:'kaart', min, kleur, tegen:true, rugnummer:nr, speler:w.teg});
   syncWedstrijdNaarDatabase(w);
   liveActie=null;
   draw();
@@ -3302,6 +3436,15 @@ function renderBeheer(){
         </span>
       </label>
     </div>
+  `:beheerTab==='tegenstanders'?`
+    ${tegenstanders.length===0?'<div style="font-size:13px;color:var(--text-light);padding:12px 4px">Nog geen tegenstanders. Deze worden automatisch toegevoegd zodra je ze bij een wedstrijd invult.</div>':
+      tegenstanders.map(t=>`<div class="season-row">
+        <div style="width:32px;height:32px;border-radius:6px;background:var(--bg);display:flex;align-items:center;justify-content:center;overflow:hidden;flex-shrink:0">
+          ${t.logo?`<img src="${t.logo}" style="width:100%;height:100%;object-fit:cover">`:`<i class="ti ti-shield" style="font-size:14px;color:var(--text-light)"></i>`}
+        </div>
+        <div style="font-size:14px;font-weight:600;flex:1">${t.naam}</div>
+        <button class="icon-btn danger" onclick="vraagVerwijderTegenstanderBevestiging(${t.id})" title="Verwijder"><i class="ti ti-trash"></i></button>
+      </div>`).join('')}
   `:`
     ${seizoenen.map(s=>`<div class="season-row${s.actief?' active-season':''}">
       <div style="font-size:14px;font-weight:600;flex:1">${s.naam}</div>
@@ -3326,6 +3469,7 @@ function renderBeheer(){
       ${beheerTab==='profiel'?'':`<div class="tab-bar">
         <div class="tab${beheerTab==='info'?' active':''}" onclick="beheerTab='info';draw()">Clubinfo</div>
         <div class="tab${beheerTab==='seizoenen'?' active':''}" onclick="beheerTab='seizoenen';draw()">Seizoenen</div>
+        <div class="tab${beheerTab==='tegenstanders'?' active':''}" onclick="beheerTab='tegenstanders';draw()">Tegenstanders</div>
         <div class="tab${beheerTab==='functies'?' active':''}" onclick="beheerTab='functies';draw()">Functies</div>
       </div>`}
       ${tabContent}
@@ -5482,6 +5626,7 @@ laadSeizoenenUitDatabase()
   })
   .then(()=>laadWedstrijdenUitDatabase())
   .then(()=>laadTrainingenUitDatabase())
+  .then(()=>laadTegenstandersUitDatabase())
   .then(()=>{
     // Nu alle data geladen is: als de oorspronkelijke URL een specifieke code bevatte
     // (bv. /spelers/a3f9k2m1), proberen we die alsnog te herstellen.
