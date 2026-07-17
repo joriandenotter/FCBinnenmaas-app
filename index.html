@@ -588,7 +588,8 @@ function wedstrijdNaarRij(w){
     wissel_bank: w.wisselBank||[], wissels: w.wissels||[],
     speelminuten: w.speelminuten||{}, seizoen_id: w.seizoenId,
     public_code: w.publicCode || genereerPublicCode(),
-    klok_fase: w.klokFase||'voor', klok_start_tijd: w.klokStartTijd||null, klok_verstreken: w.klokVerstreken||0
+    klok_fase: w.klokFase||'voor', klok_start_tijd: w.klokStartTijd||null, klok_verstreken: w.klokVerstreken||0,
+    tegenstander_logo: w.tegenstanderLogo||null
   };
 }
 
@@ -600,7 +601,8 @@ function rijNaarWedstrijd(r){
     selectie:r.selectie||{}, opstellingPos:r.opstelling_pos||{},
     wisselBank:r.wissel_bank||[], wissels:r.wissels||[],
     speelminuten:r.speelminuten||{}, seizoenId:r.seizoen_id, publicCode:r.public_code,
-    klokFase:r.klok_fase||'voor', klokStartTijd:r.klok_start_tijd||null, klokVerstreken:r.klok_verstreken||0
+    klokFase:r.klok_fase||'voor', klokStartTijd:r.klok_start_tijd||null, klokVerstreken:r.klok_verstreken||0,
+    tegenstanderLogo:r.tegenstander_logo||null
   };
 }
 
@@ -1085,6 +1087,10 @@ async function initFanLivePagina(){
   // Spelersfoto's laden (alleen naam+foto+initialen nodig, geen seizoensgebonden data) voor de tijdlijn
   const { data: spelersData } = await db.from('spelers').select('naam, foto, init');
   _fanSpelers = spelersData || [];
+  // Clublogo laden voor in het scorebord (staat normaal in 'instellingen', hier los opgehaald
+  // omdat de fan-modus verder geen instellingen laadt)
+  const { data: instellingenData } = await db.from('instellingen').select('club_logo').eq('id',1).maybeSingle();
+  if(instellingenData && instellingenData.club_logo) clubLogo = instellingenData.club_logo;
   renderFanLivePagina(w);
   clearInterval(_fanKlokInterval);
   // Elke 5 seconden verse data ophalen zodat score/events/klok bijblijven zonder dat de fan hoeft te verversen
@@ -1150,9 +1156,19 @@ function renderFanLivePagina(w){
       </div>
       <div class="fan-scorebord">
         <div style="display:flex;justify-content:center;align-items:center;gap:1.25rem;margin-bottom:1rem">
-          <div style="text-align:right;flex:1"><div style="font-size:16px;font-weight:800;color:white">FC Binnenmaas 1</div></div>
-          <div style="font-size:44px;font-weight:800;min-width:110px;color:white;letter-spacing:-0.02em">${w.score?`${w.score.e} - ${w.score.t}`:'– - –'}</div>
-          <div style="text-align:left;flex:1"><div style="font-size:16px;font-weight:800;color:white">${w.teg}</div></div>
+          <div style="display:flex;flex-direction:column;align-items:center;gap:8px;flex:1;min-width:0">
+            <div style="width:52px;height:52px;border-radius:10px;background:white;display:flex;align-items:center;justify-content:center;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.15)">
+              ${clubLogo?`<img src="${clubLogo}" style="width:100%;height:100%;object-fit:cover">`:`<i class="ti ti-shield" style="font-size:22px;color:var(--fcb-groen)"></i>`}
+            </div>
+            <div style="font-size:14px;font-weight:800;color:white;text-align:center;line-height:1.2">FC Binnenmaas 1</div>
+          </div>
+          <div style="font-size:40px;font-weight:800;min-width:100px;color:white;letter-spacing:-0.02em;flex-shrink:0">${w.score?`${w.score.e} - ${w.score.t}`:'– - –'}</div>
+          <div style="display:flex;flex-direction:column;align-items:center;gap:8px;flex:1;min-width:0">
+            <div style="width:52px;height:52px;border-radius:10px;background:white;display:flex;align-items:center;justify-content:center;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.15)">
+              ${w.tegenstanderLogo?`<img src="${w.tegenstanderLogo}" style="width:100%;height:100%;object-fit:cover">`:`<i class="ti ti-shield" style="font-size:22px;color:var(--text-light)"></i>`}
+            </div>
+            <div style="font-size:14px;font-weight:800;color:white;text-align:center;line-height:1.2">${w.teg}</div>
+          </div>
         </div>
         <div style="display:inline-flex;align-items:center;gap:7px;font-size:${isGepland?'14px':'20px'};font-weight:700;color:white;background:rgba(255,255,255,.15);padding:6px 16px;border-radius:99px">
           ${cl.live?'<span style="width:8px;height:8px;border-radius:50%;background:#fca5a5;display:inline-block;animation:pulse 1.5s infinite"></span>':''}
@@ -2010,11 +2026,34 @@ function renderNieuweWedstrijd(){
         <select id="nw-type" class="field-input">${wedstrijdCategorieen.map(c=>`<option>${c}</option>`).join('')}</select>
       </div>
     </div>
+    <div style="margin-bottom:.75rem">
+      <label class="field-label">Logo tegenstander (optioneel)</label>
+      <div style="display:flex;align-items:center;gap:10px;margin-top:4px">
+        <div id="nw-logo-preview" style="width:44px;height:44px;border-radius:8px;background:var(--bg);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;overflow:hidden;flex-shrink:0">
+          <i class="ti ti-shield" style="font-size:18px;color:var(--text-light)"></i>
+        </div>
+        <input type="file" id="nw-logo-input" accept="image/*" style="display:none" onchange="uploadNieuweWedstrijdLogo(event)">
+        <button type="button" class="btn-outline" style="font-size:12px;padding:5px 12px" onclick="document.getElementById('nw-logo-input').click()"><i class="ti ti-upload" style="font-size:13px"></i> Logo kiezen</button>
+      </div>
+    </div>
     <div style="display:flex;gap:6px;justify-content:flex-end">
-      <button class="btn-outline" style="font-size:12px;padding:5px 12px" onclick="toonNieuweWedstrijd=false;draw()">Annuleren</button>
+      <button class="btn-outline" style="font-size:12px;padding:5px 12px" onclick="toonNieuweWedstrijd=false;nieuweWTegLogo=null;draw()">Annuleren</button>
       <button class="btn-green" style="font-size:12px;padding:5px 12px" onclick="slaaNieuweWedstrijdOp()"><i class="ti ti-check" style="font-size:12px"></i> Opslaan</button>
     </div>
   </div>`;
+}
+
+let nieuweWTegLogo = null; // tijdelijk, tot de wedstrijd is opgeslagen
+async function uploadNieuweWedstrijdLogo(e){
+  const file=e.target.files[0];
+  if(!file) return;
+  const r=new FileReader();
+  r.onload=async ev=>{
+    nieuweWTegLogo = await comprimeerAfbeelding(ev.target.result, 200);
+    const preview=document.getElementById('nw-logo-preview');
+    if(preview) preview.innerHTML = `<img src="${nieuweWTegLogo}" style="width:100%;height:100%;object-fit:cover">`;
+  };
+  r.readAsDataURL(file);
 }
 
 function slaaNieuweWedstrijdOp(){
@@ -2025,12 +2064,13 @@ function slaaNieuweWedstrijdOp(){
   const loc=document.getElementById('nw-loc')?.value;
   const type=document.getElementById('nw-type')?.value;
   if(!datum||!teg) return;
-  const nieuw={id:nextWedstrijdId++,datum,tijd,teg,thuis:loc==='thuis',formatie:nieuweW.formatie,type,score:null,status:'gepland',opstelling:[1,3,5,6,10,11,13,16,17,19,21],bank:[],events:[],seizoenId:activeSeizoenId()};
+  const nieuw={id:nextWedstrijdId++,datum,tijd,teg,thuis:loc==='thuis',formatie:nieuweW.formatie,type,score:null,status:'gepland',opstelling:[1,3,5,6,10,11,13,16,17,19,21],bank:[],events:[],seizoenId:activeSeizoenId(),tegenstanderLogo:nieuweWTegLogo};
   wedstrijden.push(nieuw);
   wedstrijden.sort((a,b)=>a.datum.localeCompare(b.datum));
   syncWedstrijdNaarDatabase(nieuw);
   toonNieuweWedstrijd=false;
   nieuweW={datum:'',teg:'',thuis:true,formatie:'4-3-3',type:'Competitie'};
+  nieuweWTegLogo=null;
   showToast('Wedstrijd toegevoegd!');
 }
 
@@ -2110,12 +2150,36 @@ function renderBewerkWedstrijd(w){
         <select id="bw-type" class="field-input">${wedstrijdCategorieen.map(c=>`<option${w.type===c?' selected':''}>${c}</option>`).join('')}</select>
       </div>
     </div>
+    <div style="margin-bottom:.75rem">
+      <label class="field-label">Logo tegenstander (optioneel)</label>
+      <div style="display:flex;align-items:center;gap:10px;margin-top:4px">
+        <div id="bw-logo-preview" style="width:44px;height:44px;border-radius:8px;background:var(--bg);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;overflow:hidden;flex-shrink:0">
+          ${w.tegenstanderLogo?`<img src="${w.tegenstanderLogo}" style="width:100%;height:100%;object-fit:cover">`:`<i class="ti ti-shield" style="font-size:18px;color:var(--text-light)"></i>`}
+        </div>
+        <input type="file" id="bw-logo-input" accept="image/*" style="display:none" onchange="uploadBewerkWedstrijdLogo(event)">
+        <button type="button" class="btn-outline" style="font-size:12px;padding:5px 12px" onclick="document.getElementById('bw-logo-input').click()"><i class="ti ti-upload" style="font-size:13px"></i> Logo wijzigen</button>
+      </div>
+    </div>
     <div style="display:flex;gap:6px;justify-content:flex-end">
       <button class="btn-outline" style="font-size:12px;padding:5px 12px" onclick="sluitBewerkWedstrijd()">Annuleren</button>
       <button class="btn-green" style="font-size:12px;padding:5px 12px" onclick="slaaBewerkWedstrijdOp(${w.id})"><i class="ti ti-check" style="font-size:12px"></i> Opslaan</button>
     </div>
   </div>`;
 }
+
+let bewerkWTegLogo = undefined; // undefined = niet gewijzigd (behoud bestaande), anders de nieuwe (of null bij verwijderen) waarde
+async function uploadBewerkWedstrijdLogo(e){
+  const file=e.target.files[0];
+  if(!file) return;
+  const r=new FileReader();
+  r.onload=async ev=>{
+    bewerkWTegLogo = await comprimeerAfbeelding(ev.target.result, 200);
+    const preview=document.getElementById('bw-logo-preview');
+    if(preview) preview.innerHTML = `<img src="${bewerkWTegLogo}" style="width:100%;height:100%;object-fit:cover">`;
+  };
+  r.readAsDataURL(file);
+}
+
 function slaaBewerkWedstrijdOp(wedstrijdId){
   if(blokkeerInArchief()) return;
   const w=wedstrijden.find(x=>x.id===wedstrijdId);
@@ -2127,9 +2191,11 @@ function slaaBewerkWedstrijdOp(wedstrijdId){
   const type=document.getElementById('bw-type')?.value;
   if(!datum||!teg) return;
   w.datum=datum; w.tijd=tijd; w.teg=teg; w.thuis=(loc==='thuis'); w.type=type;
+  if(bewerkWTegLogo!==undefined) w.tegenstanderLogo=bewerkWTegLogo; // alleen aanpassen als er iets geüpload is
   wedstrijden.sort((a,b)=>a.datum.localeCompare(b.datum));
   syncWedstrijdNaarDatabase(w);
   bewerkWedstrijdId=null;
+  bewerkWTegLogo=undefined;
   showToast('Wedstrijd bijgewerkt!');
 }
 
@@ -2668,9 +2734,15 @@ function renderWedstrijdLive(w){
   return `
     <div style="text-align:center;padding:1.25rem;background:var(--bg);border-radius:var(--radius-lg);margin-bottom:1rem">
       <div style="display:flex;justify-content:center;align-items:center;gap:1.5rem;margin-bottom:.5rem">
-        <div style="text-align:right;flex:1"><div style="font-size:14px;font-weight:600">FC Binnenmaas 1</div></div>
-        <div style="font-size:38px;font-weight:700;min-width:90px">${w.score.e} - ${w.score.t}</div>
-        <div style="text-align:left;flex:1"><div style="font-size:14px;font-weight:600">${w.teg}</div></div>
+        <div style="display:flex;flex-direction:column;align-items:center;gap:6px;flex:1;min-width:0">
+          ${clubLogo?`<img src="${clubLogo}" style="width:40px;height:40px;border-radius:8px;object-fit:cover">`:`<div style="width:40px;height:40px;border-radius:8px;background:var(--fcb-groen-licht);display:flex;align-items:center;justify-content:center"><i class="ti ti-shield" style="font-size:18px;color:var(--fcb-groen)"></i></div>`}
+          <div style="font-size:13px;font-weight:700;text-align:center;line-height:1.2">FC Binnenmaas 1</div>
+        </div>
+        <div style="font-size:38px;font-weight:700;min-width:90px;flex-shrink:0">${w.score.e} - ${w.score.t}</div>
+        <div style="display:flex;flex-direction:column;align-items:center;gap:6px;flex:1;min-width:0">
+          ${w.tegenstanderLogo?`<img src="${w.tegenstanderLogo}" style="width:40px;height:40px;border-radius:8px;object-fit:cover">`:`<div style="width:40px;height:40px;border-radius:8px;background:#e5e7eb;display:flex;align-items:center;justify-content:center"><i class="ti ti-shield" style="font-size:18px;color:var(--text-light)"></i></div>`}
+          <div style="font-size:13px;font-weight:700;text-align:center;line-height:1.2">${w.teg}</div>
+        </div>
       </div>
       ${cl.extra?`<div style="font-size:11px;color:#dc2626;font-weight:600">Blessuretijd</div>`:''}
       <div class="clock-display" style="font-size:24px;font-weight:700;color:var(--fcb-groen)">${cl.display}</div>
@@ -3445,11 +3517,11 @@ function addSeizoen(){
 // Verkleint en comprimeert een foto naar max 500x500px, JPEG-kwaliteit 80%.
 // Dit houdt de database licht en de app snel, zonder zichtbaar kwaliteitsverlies
 // (een profielfoto wordt in de app nooit groter dan een paar honderd pixels getoond).
-function comprimeerAfbeelding(dataUrl){
+function comprimeerAfbeelding(dataUrl, maxSize){
   return new Promise((resolve)=>{
     const img=new Image();
     img.onload=()=>{
-      const MAX=500;
+      const MAX=maxSize||500;
       let {width, height}=img;
       if(width>height && width>MAX){ height=Math.round(height*MAX/width); width=MAX; }
       else if(height>MAX){ width=Math.round(width*MAX/height); height=MAX; }
