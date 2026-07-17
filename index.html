@@ -399,6 +399,7 @@ const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 // ============================================================
 let clubNaam = 'FC Binnenmaas 1';
 let clubLogo = null; // wordt gevuld vanuit Supabase bij het opstarten
+let ontwikkelingIngeschakeld = true; // instelbaar via Beheer team -> Functies
 let profiel = { naam:'Jorian den Otter', rol:'Hoofdtrainer', foto:null };
 let seizoenen = [
   {id:1,naam:'2024/2025',actief:false},
@@ -731,16 +732,28 @@ async function laadInstellingenUitDatabase(){
   if(data){
     if(data.club_naam) clubNaam = data.club_naam;
     if(data.club_logo) clubLogo = data.club_logo;
+    if(data.ontwikkeling_ingeschakeld!==null && data.ontwikkeling_ingeschakeld!==undefined) ontwikkelingIngeschakeld = data.ontwikkeling_ingeschakeld;
   }
   const clubNaamEl=document.getElementById('clubNaamDisplay');
   if(clubNaamEl) clubNaamEl.textContent=clubNaam;
+  // Als de huidige pagina 'ontwikkeling' is maar de functie blijkt uitgeschakeld, terug naar dashboard
+  if(page==='ontwikkeling' && !ontwikkelingIngeschakeld) setPage('dashboard');
   draw();
+  werkActieveNavigatieBij(page);
   toonLogoInUI();
 }
 
 async function syncInstellingenNaarDatabase(){
-  const { error } = await db.from('instellingen').update({ club_naam: clubNaam, club_logo: clubLogo }).eq('id',1);
+  const { error } = await db.from('instellingen').update({ club_naam: clubNaam, club_logo: clubLogo, ontwikkeling_ingeschakeld: ontwikkelingIngeschakeld }).eq('id',1);
   if(error){ console.error('Fout bij opslaan instellingen:', error.message||error, error); showToast('Opslaan mislukt: '+(error.message||'controleer verbinding'), 'fout'); }
+}
+
+function toggleOntwikkeling(){
+  ontwikkelingIngeschakeld = !ontwikkelingIngeschakeld;
+  syncInstellingenNaarDatabase();
+  if(!ontwikkelingIngeschakeld && page==='ontwikkeling') setPage('dashboard');
+  werkActieveNavigatieBij(page);
+  draw();
 }
 
 // Zet het logo (indien aanwezig) in de UI-elementen; wordt aangeroepen na laden en na wijzigen
@@ -998,6 +1011,8 @@ function werkActieveNavigatieBij(p){
     if(b.dataset.page==='meer') b.classList.toggle('active', !inTabbar);
     else b.classList.toggle('active', b.dataset.page===p);
   });
+  const ontwSbItem = document.querySelector('.sb-item[data-page="ontwikkeling"]');
+  if(ontwSbItem) ontwSbItem.style.display = ontwikkelingIngeschakeld ? '' : 'none';
 }
 
 const GELDIGE_PAGINAS = ['dashboard','spelers','wedstrijden','statistieken','ontwikkeling','rollen','trainingen'];
@@ -1079,7 +1094,7 @@ function toonMeerMenu(){
     {p:'ontwikkeling',i:'ti-chart-line',l:'Ontwikkeling'},
     {p:'rollen',i:'ti-shield-check',l:'Rollen'},
     {p:'meer_beheer',i:'ti-settings',l:'Beheer team'}
-  ];
+  ].filter(it=>it.p!=='ontwikkeling' || ontwikkelingIngeschakeld);
   ov.innerHTML='<div style="background:#fff;width:100%;border-radius:16px 16px 0 0;padding:10px 10px calc(14px + env(safe-area-inset-bottom));box-shadow:0 -4px 20px rgba(0,0,0,0.15)">'+
     '<div style="width:36px;height:4px;background:#e5e5e5;border-radius:2px;margin:6px auto 12px"></div>'+
     items.map(it=>`<button onclick="${it.p==='meer_beheer'?"document.getElementById('meerOverlay').remove();openBeheer('info')":"document.getElementById('meerOverlay').remove();setPage('"+it.p+"')"}" style="display:flex;align-items:center;gap:14px;width:100%;padding:14px 16px;border:none;background:none;font-family:inherit;font-size:15px;font-weight:500;color:var(--text);cursor:pointer;border-radius:10px"><i class="ti ${it.i}" style="font-size:21px;color:var(--accent)"></i>${it.l}</button>`).join('')+
@@ -1112,7 +1127,7 @@ function draw(){
   else if(page==='spelers')   html+=activeSpelerId?renderSpelerDetail():renderSpelers();
   else if(page==='wedstrijden') html+=activeWedstrijdId?renderWedstrijdDetail():renderWedstrijden();
   else if(page==='statistieken') html+=renderWedstrijdStatistieken();
-  else if(page==='ontwikkeling') html+=renderOntwikkeling();
+  else if(page==='ontwikkeling') html+=ontwikkelingIngeschakeld?renderOntwikkeling():renderDashboard();
   else if(page==='rollen')    html+=renderRollen();
   else if(page==='trainingen') html+=renderTrainingen();
   if(typeof renderOpstellingKiezer==='function' && opstellingKiezer) html+=renderOpstellingKiezer();
@@ -2888,6 +2903,19 @@ function renderBeheer(){
     <div class="field-box"><label class="field-label">Clubnaam</label><input class="field-input" type="text" id="clubNaamInput" value="${clubNaam}"></div>
     <div class="field-box"><label class="field-label">Actief seizoen</label><input class="field-input" type="text" value="${activeSeizoen()?.naam||'—'}" disabled style="opacity:.6;cursor:not-allowed"></div>
     <div style="display:flex;justify-content:flex-end;margin-top:1rem"><button class="btn-green" onclick="slaClubOp()"><i class="ti ti-check" style="font-size:13px"></i> Opslaan</button></div>
+  `:beheerTab==='functies'?`
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 4px;border-bottom:1px solid var(--border-soft)">
+      <div>
+        <div style="font-size:14px;font-weight:600">Ontwikkeling</div>
+        <div style="font-size:12px;color:var(--text-muted)">Tabblad met ontwikkelplannen per speler</div>
+      </div>
+      <label style="position:relative;display:inline-block;width:42px;height:24px;flex-shrink:0;cursor:pointer">
+        <input type="checkbox" ${ontwikkelingIngeschakeld?'checked':''} onchange="toggleOntwikkeling()" style="opacity:0;width:0;height:0">
+        <span style="position:absolute;inset:0;background:${ontwikkelingIngeschakeld?'var(--fcb-groen)':'#d1d5db'};border-radius:99px;transition:.2s">
+          <span style="position:absolute;height:18px;width:18px;left:${ontwikkelingIngeschakeld?'21px':'3px'};bottom:3px;background:white;border-radius:50%;transition:.2s;box-shadow:0 1px 2px rgba(0,0,0,.2)"></span>
+        </span>
+      </label>
+    </div>
   `:`
     ${seizoenen.map(s=>`<div class="season-row${s.actief?' active-season':''}">
       <div style="font-size:14px;font-weight:600;flex:1">${s.naam}</div>
@@ -2912,6 +2940,7 @@ function renderBeheer(){
       ${beheerTab==='profiel'?'':`<div class="tab-bar">
         <div class="tab${beheerTab==='info'?' active':''}" onclick="beheerTab='info';draw()">Clubinfo</div>
         <div class="tab${beheerTab==='seizoenen'?' active':''}" onclick="beheerTab='seizoenen';draw()">Seizoenen</div>
+        <div class="tab${beheerTab==='functies'?' active':''}" onclick="beheerTab='functies';draw()">Functies</div>
       </div>`}
       ${tabContent}
     </div>
