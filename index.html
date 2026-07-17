@@ -1886,6 +1886,42 @@ function slaaNieuweWedstrijdOp(){
 }
 
 // ---- WEDSTRIJD BEWERKEN (datum/tijd/tegenstander/locatie/type van een bestaande wedstrijd) ----
+// ---- Wedstrijd verwijderen: eerst bevestigen ----
+let verwijderWedstrijdId=null;
+
+function vraagVerwijderWedstrijdBevestiging(wedstrijdId){
+  if(blokkeerInArchief()) return;
+  verwijderWedstrijdId=wedstrijdId;
+  draw();
+}
+function sluitVerwijderWedstrijdDialoog(){ verwijderWedstrijdId=null; draw(); }
+
+function renderVerwijderWedstrijdDialoog(w){
+  return`<div style="background:#fef2f2;border:1px solid #fca5a5;border-radius:var(--radius);padding:1rem;margin-bottom:1rem">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+      <i class="ti ti-alert-triangle" style="font-size:18px;color:#dc2626"></i>
+      <div style="font-size:14px;font-weight:700;color:#991b1b">Wedstrijd verwijderen?</div>
+    </div>
+    <div style="font-size:13px;color:#7f1d1d;margin-bottom:12px">
+      FC Binnenmaas 1 – ${w.teg} (${fmtDate(w.datum)}) wordt definitief verwijderd, inclusief opstelling, events en statistieken van deze wedstrijd. Dit kan niet ongedaan gemaakt worden.
+    </div>
+    <div style="display:flex;gap:6px;justify-content:flex-end">
+      <button class="btn-outline" style="font-size:12px;padding:5px 12px" onclick="sluitVerwijderWedstrijdDialoog()">Annuleren</button>
+      <button class="btn-danger" style="font-size:12px;padding:5px 12px" onclick="bevestigVerwijderWedstrijd(${w.id})"><i class="ti ti-trash" style="font-size:12px"></i> Definitief verwijderen</button>
+    </div>
+  </div>`;
+}
+
+function bevestigVerwijderWedstrijd(wedstrijdId){
+  if(blokkeerInArchief()) return;
+  wedstrijden = wedstrijden.filter(x=>x.id!==wedstrijdId);
+  verwijderWedstrijdUitDatabase(wedstrijdId);
+  verwijderWedstrijdId=null;
+  activeWedstrijdId=null;
+  showToast('Wedstrijd verwijderd');
+  draw();
+}
+
 function openBewerkWedstrijd(wedstrijdId){
   bewerkWedstrijdId=wedstrijdId;
   draw();
@@ -1990,10 +2026,12 @@ function renderWedstrijdDetail(){
   const bewerkKnop = gepland
     ? `<button class="btn-outline" onclick="openBewerkWedstrijd(${w.id})"><i class="ti ti-pencil" style="font-size:14px"></i> Bewerken</button>`
     : '';
+  const verwijderKnop = `<button class="btn-outline" style="border-color:#fca5a5;color:#dc2626" onclick="vraagVerwijderWedstrijdBevestiging(${w.id})"><i class="ti ti-trash" style="font-size:14px"></i></button>`;
 
   return`
     <button class="back-btn" onclick="activeWedstrijdId=null;bewerkWedstrijdId=null;draw()"><i class="ti ti-arrow-left" style="font-size:14px"></i> Terug naar wedstrijden</button>
     ${bewerkWedstrijdId===w.id?renderBewerkWedstrijd(w):''}
+    ${verwijderWedstrijdId===w.id?renderVerwijderWedstrijdDialoog(w):''}
     <div class="card">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;padding-bottom:.75rem;border-bottom:1px solid var(--border);flex-wrap:wrap;gap:8px">
         <div>
@@ -2005,7 +2043,7 @@ function renderWedstrijdDetail(){
             ${statusBadge}
           </div>
         </div>
-        <div style="display:flex;gap:8px">${bewerkKnop}${startKnop}</div>
+        <div style="display:flex;gap:8px">${bewerkKnop}${startKnop}${verwijderKnop}</div>
       </div>
       <div class="tab-bar">
         ${tabs.map(t=>`<div class="tab${wedstrijdTab===t[0]?' active':''}" onclick="wedstrijdTab='${t[0]}';draw()">${t[1]}</div>`).join('')}
