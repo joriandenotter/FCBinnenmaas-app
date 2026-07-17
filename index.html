@@ -4578,6 +4578,13 @@ function renderNieuweTraining(){
       <div><label class="field-label">Tijd</label><input type="text" id="nt-tijd" class="field-input" placeholder="bijv. 20:15-21:45" value="20:15-21:45"></div>
       <div><label class="field-label">Dag</label><div id="nt-dag-label" class="field-input" style="background:var(--bg);color:var(--text-muted);display:flex;align-items:center">—</div></div>
     </div>
+    <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;margin-bottom:.75rem">
+      <input type="checkbox" id="nt-herhaal" onchange="document.getElementById('nt-herhaal-opties').style.display=this.checked?'grid':'none'" style="width:16px;height:16px">
+      Elke week herhalen tot een einddatum
+    </label>
+    <div id="nt-herhaal-opties" class="form-grid" style="display:none;margin-bottom:.75rem">
+      <div><label class="field-label">Herhalen tot en met</label><input type="date" id="nt-herhaal-einddatum" class="field-input"></div>
+    </div>
     <div style="display:flex;gap:6px;justify-content:flex-end">
       <button class="btn-outline" style="font-size:12px;padding:5px 12px" onclick="toonNieuweTraining=false;draw()">Annuleren</button>
       <button class="btn-green" style="font-size:12px;padding:5px 12px" onclick="slaaNieuweTrainingOp()"><i class="ti ti-check" style="font-size:12px"></i> Opslaan</button>
@@ -4590,13 +4597,31 @@ function slaaNieuweTrainingOp(){
   const datum=document.getElementById('nt-datum')?.value;
   const tijd=document.getElementById('nt-tijd')?.value.trim()||'20:15-21:45';
   if(!datum) return;
-  const dag=berekenDagNaam(datum);
-  const nieuw={id:nextTrainingId++,datum,dag,tijd,geannuleerd:false,aanwezigheid:{},seizoenId:activeSeizoenId()};
-  trainingen.push(nieuw);
+  const herhalen = document.getElementById('nt-herhaal')?.checked;
+  const einddatum = document.getElementById('nt-herhaal-einddatum')?.value;
+  if(herhalen && !einddatum){ showToast('Kies een einddatum voor de herhaling', 'fout'); return; }
+  if(herhalen && einddatum < datum){ showToast('Einddatum ligt voor de startdatum', 'fout'); return; }
+
+  // Bouw de lijst met datums: alleen de startdatum, of elke week erna tot en met de einddatum
+  const datums = [datum];
+  if(herhalen){
+    let volgende = new Date(datum+'T12:00:00');
+    while(true){
+      volgende.setDate(volgende.getDate()+7);
+      const volgendeStr = volgende.toISOString().split('T')[0];
+      if(volgendeStr > einddatum) break;
+      datums.push(volgendeStr);
+    }
+  }
+
+  const nieuwe = datums.map(d=>({
+    id:nextTrainingId++, datum:d, dag:berekenDagNaam(d), tijd,
+    geannuleerd:false, aanwezigheid:{}, seizoenId:activeSeizoenId()
+  }));
+  nieuwe.forEach(n=>{ trainingen.push(n); syncTrainingNaarDatabase(n); });
   trainingen.sort((a,b)=>a.datum.localeCompare(b.datum));
-  syncTrainingNaarDatabase(nieuw);
   toonNieuweTraining=false;
-  showToast('Training toegevoegd!');
+  showToast(nieuwe.length>1 ? `${nieuwe.length} trainingen toegevoegd!` : 'Training toegevoegd!');
   draw();
 }
 
