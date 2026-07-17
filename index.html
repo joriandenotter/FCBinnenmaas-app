@@ -1139,7 +1139,10 @@ function renderFanLivePagina(w){
         if(e.type==='kaart'){
           const kleurHex = e.kleur==='rood'?'#dc2626':'#facc15';
           const bgKleur = e.kleur==='rood'?'#fee2e2':'#fef9c3';
-          return `<div class="fan-event"><div class="fan-event-min">${e.min}'</div><div class="fan-event-icon" style="background:${bgKleur}"><span style="display:inline-block;width:10px;height:14px;background:${kleurHex};border-radius:2px"></span></div>${fanFotoVoorNaam(e.speler)}<div class="fan-event-tekst">${e.speler}</div></div>`;
+          const icoon = e.tegen
+            ? `<div style="width:30px;height:30px;border-radius:50%;background:#e5e7eb;color:var(--text-muted);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0;border:2px solid white;box-shadow:0 1px 3px rgba(0,0,0,.15)">${e.rugnummer||'?'}</div>`
+            : fanFotoVoorNaam(e.speler);
+          return `<div class="fan-event"><div class="fan-event-min">${e.min}'</div><div class="fan-event-icon" style="background:${bgKleur}"><span style="display:inline-block;width:10px;height:14px;background:${kleurHex};border-radius:2px"></span></div>${icoon}<div class="fan-event-tekst">${e.speler}</div></div>`;
         }
         return `<div class="fan-event"><div class="fan-event-min">${e.min}'</div><div class="fan-event-icon" style="background:var(--fcb-groen-licht)"><i class="ti ti-ball-football" style="color:var(--fcb-groen);font-size:16px"></i></div>${fanFotoVoorNaam(e.speler)}<div class="fan-event-tekst">${e.speler}${e.assist&&e.assist!=='geen'?`<div style="font-size:11px;color:var(--text-muted);font-weight:400">assist: ${e.assist}</div>`:''}</div></div>`;
       }).join('');
@@ -2726,7 +2729,10 @@ function renderWedstrijdLive(w){
         }
         if(e.type==='kaart'){
           const kleurHex = e.kleur==='rood'?'#dc2626':'#facc15';
-          return `<div class="event-row"><span class="event-min">${e.min}\'</span><span style="display:inline-block;width:11px;height:15px;background:${kleurHex};border-radius:2px;flex-shrink:0"></span>${fotoVoorNaam(e.speler)}<span style="font-size:13px">${e.speler}</span></div>`;
+          const icoon = e.tegen
+            ? `<div style="width:26px;height:26px;border-radius:50%;background:#e5e7eb;color:var(--text-muted);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;flex-shrink:0">${e.rugnummer||'?'}</div>`
+            : fotoVoorNaam(e.speler);
+          return `<div class="event-row"><span class="event-min">${e.min}\'</span><span style="display:inline-block;width:11px;height:15px;background:${kleurHex};border-radius:2px;flex-shrink:0"></span>${icoon}<span style="font-size:13px">${e.speler}</span></div>`;
         }
         return `<div class="event-row"><span class="event-min">${e.min}\'</span><i class="ti ti-ball-football" style="color:var(--fcb-groen);font-size:15px"></i>${fotoVoorNaam(e.speler)}<span>${e.speler}${e.assist&&e.assist!=='geen'?` <span style="font-size:11px;color:var(--text-muted)">(assist: ${e.assist})</span>`:''}</span></div>`;
       }).join('');
@@ -2832,13 +2838,25 @@ function registreerWissel(wedstrijdId, uitId, inId){
 }
 
 // ---- Kaarten (geel/rood) ----
-function openKaart(wedstrijdId){ liveActie={type:'kaart', wedstrijdId, kleur:'geel', speler:null}; draw(); }
+function openKaart(wedstrijdId){ liveActie={type:'kaart', wedstrijdId, kant:'eigen', kleur:'geel', speler:null, tegNr:''}; draw(); }
 function registreerKaart(wedstrijdId, kleur, spelerId){
   if(blokkeerInArchief()) return;
   const w = ensureWedstrijdVelden(wedstrijden.find(x=>x.id===wedstrijdId));
   const min = Math.floor(klokSeconds()/60)+1;
   const sp = spelers.find(s=>s.id===Number(spelerId));
   w.events.push({type:'kaart', min, kleur, speler:sp?sp.naam:'Onbekend'});
+  syncWedstrijdNaarDatabase(w);
+  liveActie=null;
+  draw();
+}
+// Kaart voor een speler van de tegenstander: geen spelerslijst beschikbaar, dus alleen het rugnummer wordt vastgelegd
+function registreerKaartTegenstander(wedstrijdId, kleur, rugnummer){
+  if(blokkeerInArchief()) return;
+  const nr = (rugnummer||'').trim();
+  if(!nr) return;
+  const w = ensureWedstrijdVelden(wedstrijden.find(x=>x.id===wedstrijdId));
+  const min = Math.floor(klokSeconds()/60)+1;
+  w.events.push({type:'kaart', min, kleur, tegen:true, rugnummer:nr, speler:`${w.teg} #${nr}`});
   syncWedstrijdNaarDatabase(w);
   liveActie=null;
   draw();
@@ -2917,15 +2935,34 @@ function renderLiveActie(){
     const opVeldIds = [...Object.values(w.opstellingPos).filter(Boolean).map(Number), ...ingevallen].filter(id=>!uitgewisseld.has(id));
     const opVeld = spelers.filter(s=>opVeldIds.includes(s.id));
 
+    const kantKnoppen = `
+      <div style="display:flex;gap:6px;margin-bottom:1rem">
+        <button onclick="liveActie.kant='eigen';draw()" style="flex:1;padding:8px;border-radius:8px;cursor:pointer;font-family:inherit;font-size:13px;font-weight:600;border:1px solid ${(liveActie.kant||'eigen')==='eigen'?'var(--fcb-groen)':'var(--border)'};background:${(liveActie.kant||'eigen')==='eigen'?'var(--fcb-groen-licht)':'#fff'};color:${(liveActie.kant||'eigen')==='eigen'?'#1B5E20':'var(--text-muted)'}">FC Binnenmaas 1</button>
+        <button onclick="liveActie.kant='tegen';draw()" style="flex:1;padding:8px;border-radius:8px;cursor:pointer;font-family:inherit;font-size:13px;font-weight:600;border:1px solid ${liveActie.kant==='tegen'?'var(--fcb-groen)':'var(--border)'};background:${liveActie.kant==='tegen'?'var(--fcb-groen-licht)':'#fff'};color:${liveActie.kant==='tegen'?'#1B5E20':'var(--text-muted)'}">${w.teg}</button>
+      </div>`;
+
     const kleurKnoppen = `<div style="display:flex;gap:6px;margin-bottom:1rem">
       <button onclick="liveActie.kleur='geel';draw()" style="flex:1;padding:8px;border-radius:8px;cursor:pointer;font-family:inherit;font-size:13px;font-weight:600;border:1.5px solid ${liveActie.kleur==='geel'?'#ca8a04':'var(--border)'};background:${liveActie.kleur==='geel'?'#fef9c3':'#fff'};color:${liveActie.kleur==='geel'?'#854d0e':'var(--text-muted)'}"><span style="display:inline-block;width:11px;height:15px;background:#facc15;border-radius:2px;margin-right:5px;vertical-align:-2px"></span>Geel</button>
       <button onclick="liveActie.kleur='rood';draw()" style="flex:1;padding:8px;border-radius:8px;cursor:pointer;font-family:inherit;font-size:13px;font-weight:600;border:1.5px solid ${liveActie.kleur==='rood'?'#dc2626':'var(--border)'};background:${liveActie.kleur==='rood'?'#fee2e2':'#fff'};color:${liveActie.kleur==='rood'?'#991b1b':'var(--text-muted)'}"><span style="display:inline-block;width:11px;height:15px;background:#dc2626;border-radius:2px;margin-right:5px;vertical-align:-2px"></span>Rood</button>
     </div>`;
     const kaartKleur = liveActie.kleur==='rood'?'#dc2626':'#ca8a04';
-    const spelerKnoppen = opVeld.map(sp=>liveSpelerKnop(sp, Number(liveActie.speler)===sp.id, kaartKleur, `liveActie.speler=${sp.id};draw()`)).join('');
-    const bevestig = liveActie.speler ? `<button class="btn-green" style="width:100%;justify-content:center;margin-top:1rem" onclick="registreerKaart(${w.id},'${liveActie.kleur}',${liveActie.speler})">Kaart registreren (${min}')</button>` : '';
 
-    return liveOverlay(`Kaart — ${min}'`, `${kleurKnoppen}<div class="sec-lbl">Voor welke speler?</div>${liveSpelerGrid(spelerKnoppen)}${bevestig}`);
+    let keuze='';
+    if(liveActie.kant==='tegen'){
+      const bevestig = liveActie.tegNr
+        ? `<button class="btn-green" style="width:100%;justify-content:center;margin-top:1rem" onclick="registreerKaartTegenstander(${w.id},'${liveActie.kleur}',document.getElementById('kaart-tegnr').value)">Kaart registreren (${min}')</button>`
+        : '';
+      keuze = `<div class="sec-lbl">Rugnummer ${w.teg}</div>
+        <input id="kaart-tegnr" type="text" inputmode="numeric" placeholder="bijv. 8" class="field-input" value="${liveActie.tegNr||''}"
+          oninput="liveActie.tegNr=this.value;draw()" style="max-width:120px;font-size:16px;text-align:center;font-weight:700">
+        ${bevestig}`;
+    } else {
+      const spelerKnoppen = opVeld.map(sp=>liveSpelerKnop(sp, Number(liveActie.speler)===sp.id, kaartKleur, `liveActie.speler=${sp.id};draw()`)).join('');
+      const bevestig = liveActie.speler ? `<button class="btn-green" style="width:100%;justify-content:center;margin-top:1rem" onclick="registreerKaart(${w.id},'${liveActie.kleur}',${liveActie.speler})">Kaart registreren (${min}')</button>` : '';
+      keuze = `<div class="sec-lbl">Voor welke speler?</div>${liveSpelerGrid(spelerKnoppen)}${bevestig}`;
+    }
+
+    return liveOverlay(`Kaart — ${min}'`, `${kantKnoppen}${kleurKnoppen}${keuze}`);
   }
   return '';
 }
