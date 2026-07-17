@@ -1646,14 +1646,14 @@ function renderWedstrijdStatistieken(){
   </div>`;
 
   // ---- Doelpunten, resultaten ----
-  const statBoxen = `<div class="stats-row">
-    <div class="stat-box"><div class="stat-val" style="color:var(--fcb-groen)">${doelpuntenVoor}</div><div class="stat-lbl">Doelpunten voor</div></div>
-    <div class="stat-box"><div class="stat-val" style="color:#dc2626">${doelpuntenTegen}</div><div class="stat-lbl">Doelpunten tegen</div></div>
+  const statBoxen = `<div class="stats-row-3col" style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:1.5rem">
     <div class="stat-box"><div class="stat-val" style="color:var(--fcb-groen)">${gewonnen}</div><div class="stat-lbl">Winst</div></div>
     <div class="stat-box"><div class="stat-val">${gelijk}</div><div class="stat-lbl">Gelijk</div></div>
-  </div>
-  <div class="stats-row" style="grid-template-columns:1fr">
     <div class="stat-box"><div class="stat-val" style="color:#dc2626">${verloren}</div><div class="stat-lbl">Verlies</div></div>
+  </div>
+  <div class="stats-row-2col" style="display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-bottom:1.5rem">
+    <div class="stat-box"><div class="stat-val" style="color:var(--fcb-groen)">${doelpuntenVoor}</div><div class="stat-lbl">Doelpunten voor</div></div>
+    <div class="stat-box"><div class="stat-val" style="color:#dc2626">${doelpuntenTegen}</div><div class="stat-lbl">Doelpunten tegen</div></div>
   </div>`;
 
   // ---- Topscorers / assists (over de gefilterde wedstrijden: doelpunten/assists uit events) ----
