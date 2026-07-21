@@ -406,6 +406,98 @@ const SUPABASE_KEY = 'sb_publishable_Rjvoaplvn-59Meroeoh8Qg_sUXKcedK';
 const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
 // ============================================================
+// AUTHENTICATIE & ROLLEN
+// ============================================================
+// huidigeSessie: de Supabase Auth-sessie (null als niet ingelogd)
+// huidigeGebruiker: het gekoppelde gebruikers- of spelers-record (met rol_niveau)
+let huidigeSessie = null;
+let huidigeGebruiker = null; // {id, naam, rolNiveau, bron:'gebruikers'|'spelers'}
+
+// Rolniveaus, van laag naar hoog qua rechten (gebruikt voor duidelijke checks in de UI)
+const ROL_SPELER = 'speler';
+const ROL_STAF_LEZEN = 'staf_lezen';
+const ROL_STAF_BEWERKEN = 'staf_bewerken';
+const ROL_STAF_ADMIN = 'staf_admin';
+
+function magBewerken(){
+  return huidigeGebruiker && (huidigeGebruiker.rolNiveau===ROL_STAF_BEWERKEN || huidigeGebruiker.rolNiveau===ROL_STAF_ADMIN);
+}
+function isAdmin(){
+  return huidigeGebruiker && huidigeGebruiker.rolNiveau===ROL_STAF_ADMIN;
+}
+function isIngelogd(){
+  return !!huidigeSessie;
+}
+
+// Haalt, na een succesvolle login, het gekoppelde profiel (gebruikers of spelers) op en zet huidigeGebruiker.
+async function laadHuidigeGebruiker(){
+  if(!huidigeSessie){ huidigeGebruiker=null; return; }
+  const uid = huidigeSessie.user.id;
+  const { data: gebruiker } = await db.from('gebruikers').select('*').eq('auth_user_id', uid).maybeSingle();
+  if(gebruiker){
+    huidigeGebruiker = { id:gebruiker.id, naam:gebruiker.naam, rolNiveau:gebruiker.rol_niveau||ROL_STAF_LEZEN, bron:'gebruikers' };
+    return;
+  }
+  const { data: speler } = await db.from('spelers').select('id, naam').eq('auth_user_id', uid).maybeSingle();
+  if(speler){
+    huidigeGebruiker = { id:speler.id, naam:speler.naam, rolNiveau:ROL_SPELER, bron:'spelers' };
+    return;
+  }
+  // Ingelogd bij Supabase Auth, maar nog aan geen enkel profiel gekoppeld (zou niet moeten voorkomen
+  // in de normale flow, maar we vangen het netjes af)
+  huidigeGebruiker = null;
+}
+
+async function logUit(){
+  await db.auth.signOut();
+  huidigeSessie = null;
+  huidigeGebruiker = null;
+  window.location.href = '/'; // volledige herlaad, zodat alle in-memory data (spelers, wedstrijden, etc.) leeg begint
+}
+
+// ---- Login-scherm (getoond wanneer er geen actieve sessie is) ----
+function renderLoginScherm(foutmelding){
+  return `<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;padding:1.5rem;background:var(--bg)">
+    <div style="width:100%;max-width:380px">
+      <div style="text-align:center;margin-bottom:1.5rem">
+        <i class="ti ti-ball-football" style="font-size:32px;color:var(--fcb-groen)"></i>
+        <div style="font-size:18px;font-weight:700;margin-top:6px">Smart Trainer</div>
+        <div style="font-size:13px;color:var(--text-muted)">Log in om verder te gaan</div>
+      </div>
+      <div class="card">
+        ${foutmelding?`<div style="background:#fef2f2;border:1px solid #fca5a5;color:#991b1b;border-radius:var(--radius);padding:10px 12px;margin-bottom:1rem;font-size:13px">${foutmelding}</div>`:''}
+        <div style="margin-bottom:.75rem">
+          <label class="field-label">E-mailadres</label>
+          <input type="email" id="login-email" class="field-input" placeholder="naam@voorbeeld.nl" autocomplete="username">
+        </div>
+        <div style="margin-bottom:1rem">
+          <label class="field-label">Wachtwoord</label>
+          <input type="password" id="login-wachtwoord" class="field-input" placeholder="••••••••" autocomplete="current-password" onkeydown="if(event.key==='Enter')probeerInloggen()">
+        </div>
+        <button class="btn-green" style="width:100%;justify-content:center" onclick="probeerInloggen()"><i class="ti ti-login" style="font-size:14px"></i> Inloggen</button>
+      </div>
+      <div style="text-align:center;margin-top:1rem;font-size:12px;color:var(--text-light)">
+        Nog geen account? Vraag je koppel-link aan de beheerder van het team.
+      </div>
+    </div>
+  </div>`;
+}
+
+async function probeerInloggen(){
+  const email = document.getElementById('login-email')?.value.trim();
+  const wachtwoord = document.getElementById('login-wachtwoord')?.value;
+  if(!email||!wachtwoord){ toonLoginFout('Vul e-mailadres en wachtwoord in'); return; }
+  const { data, error } = await db.auth.signInWithPassword({ email, password:wachtwoord });
+  if(error){ toonLoginFout('Inloggen mislukt: controleer je e-mailadres en wachtwoord'); return; }
+  // Succesvol ingelogd: herlaad de pagina volledig, zodat de normale opstart-flow (met sessie)
+  // opnieuw en schoon doorlopen wordt, in plaats van halverwege de app-state te reconstrueren.
+  window.location.reload();
+}
+function toonLoginFout(msg){
+  document.getElementById('pageContent').innerHTML = renderLoginScherm(msg);
+}
+
+// ============================================================
 // DATA
 // ============================================================
 let clubNaam = 'FC Binnenmaas 1';
@@ -658,6 +750,50 @@ async function laadTegenstandersUitDatabase(){
   tegenstanders = data||[];
 }
 
+// ============================================================
+// SUPABASE: laden en synchroniseren van gebruikers (staf-accounts, rollen, koppel-codes)
+// ============================================================
+async function laadGebruikersUitDatabase(){
+  const { data, error } = await db.from('gebruikers').select('*').order('naam');
+  if(error){ console.error('Fout bij laden gebruikers:', error.message||error, error); showToast('Kon gebruikers niet laden: '+(error.message||'onbekende fout'), 'fout'); return; }
+  gebruikers = data||[];
+}
+
+async function wijzigRolNiveau(gebruikerId, nieuwRolNiveau){
+  if(!isAdmin()){ showToast('Alleen een admin mag rollen wijzigen', 'fout'); return; }
+  const { error } = await db.from('gebruikers').update({rol_niveau:nieuwRolNiveau}).eq('id', gebruikerId);
+  if(error){ console.error('Fout bij wijzigen rol:', error.message||error, error); showToast('Rol wijzigen mislukt: '+(error.message||'controleer verbinding'), 'fout'); return; }
+  const g = gebruikers.find(x=>x.id===gebruikerId);
+  if(g) g.rol_niveau = nieuwRolNiveau;
+  showToast('Rol bijgewerkt');
+  draw();
+}
+
+async function wijzigFunctieTitel(gebruikerId, nieuweFunctie){
+  const { error } = await db.from('gebruikers').update({functie:nieuweFunctie}).eq('id', gebruikerId);
+  if(error){ console.error('Fout bij wijzigen functie:', error.message||error, error); showToast('Functie wijzigen mislukt: '+(error.message||'controleer verbinding'), 'fout'); return; }
+  const g = gebruikers.find(x=>x.id===gebruikerId);
+  if(g) g.functie = nieuweFunctie;
+  // Als dit de ingelogde gebruiker zelf is: ook de topbar-weergave direct bijwerken
+  if(huidigeGebruiker && huidigeGebruiker.bron==='gebruikers' && huidigeGebruiker.id===gebruikerId){
+    profiel.rol = nieuweFunctie;
+    const roleEl=document.getElementById('profielRolLabel');
+    if(roleEl) roleEl.textContent=nieuweFunctie;
+  }
+  showToast('Functie bijgewerkt');
+}
+
+// Genereert een eenmalige koppel-code voor een staflid, en geeft de volledige URL terug
+async function genereerKoppelUrl(gebruikerId){
+  if(!isAdmin()){ showToast('Alleen een admin mag koppel-links genereren', 'fout'); return null; }
+  const code = genereerPublicCode();
+  const { error } = await db.from('gebruikers').update({koppel_code:code, koppel_code_gebruikt:false, auth_user_id:null}).eq('id', gebruikerId);
+  if(error){ console.error('Fout bij genereren koppel-link:', error.message||error, error); showToast('Koppel-link genereren mislukt: '+(error.message||'onbekende fout'), 'fout'); return null; }
+  const g = gebruikers.find(x=>x.id===gebruikerId);
+  if(g){ g.koppel_code=code; g.koppel_code_gebruikt=false; g.auth_user_id=null; }
+  return `${window.location.origin}/koppel-account/${code}`;
+}
+
 // Slaat een tegenstander op (nieuw of bestaand). Geeft het (mogelijk net aangemaakte) record terug.
 async function slaTegenstanderOp(naam, logo){
   const bestaand = tegenstanders.find(t=>t.naam.toLowerCase()===naam.toLowerCase());
@@ -859,23 +995,7 @@ let spelers = [
 
 let wedstrijden = []; // wordt gevuld vanuit Supabase bij het opstarten
 
-const gebruikers = [
-  {id:1,naam:"Sander Fakkel",    init:"SF",email:"",rol:"staf",  status:"geen"},
-  {id:2,naam:"Peter Boekholt",   init:"PB",email:"",rol:"staf",  status:"geen"},
-  {id:3,naam:"Jorian den Otter", init:"JO",email:"",rol:"staf",  status:"geen"},
-  {id:4,naam:"Martin Remmers",   init:"MR",email:"",rol:"staf",  status:"geen"},
-  {id:5,naam:"Xander Peek",      init:"XP",email:"",rol:"staf",  status:"geen"},
-  {id:6,naam:"Kees van der Pligt",init:"KP",email:"",rol:"staf",  status:"geen"},
-  {id:7,naam:"Thijs Botterhuis", init:"TB",email:"",rol:"speler",status:"geen"},
-  {id:8,naam:"Milan Schouten",   init:"MS",email:"",rol:"speler",status:"geen"},
-  {id:9,naam:"Mischa Bal",       init:"MB",email:"",rol:"speler",status:"geen"},
-  {id:10,naam:"Robin Verhoeven", init:"RV",email:"",rol:"speler",status:"geen"},
-  {id:11,naam:"Youri van Ruiven",init:"YR",email:"",rol:"speler",status:"geen"},
-  {id:12,naam:"Divano Hoks",     init:"DH",email:"",rol:"speler",status:"geen"},
-  {id:13,naam:"Daan Leggedoor",  init:"DL",email:"",rol:"speler",status:"geen"},
-  {id:14,naam:"Dylan Doek",      init:"DD",email:"",rol:"speler",status:"geen"},
-  {id:15,naam:"Stijn Remmers",   init:"SR",email:"",rol:"speler",status:"geen"},
-];
+let gebruikers = []; // staf-accounts, wordt gevuld vanuit Supabase bij het opstarten
 
 // ============================================================
 // STATE
@@ -1109,6 +1229,99 @@ function fanLiveCode(){
   return delen[1] || null;
 }
 
+// ============================================================
+// KOPPEL-ACCOUNT PAGINA (/koppel-account/{code})
+// Een staflid opent deze link (eenmalig), stelt een wachtwoord in, en zijn nieuwe
+// Supabase Auth-account wordt gekoppeld aan zijn bestaande 'gebruikers'-profiel.
+// ============================================================
+function isKoppelAccountPad(){
+  return window.location.pathname.replace(/^\/|\/$/g,'').startsWith('koppel-account/');
+}
+function koppelAccountCode(){
+  const delen = window.location.pathname.replace(/^\/|\/$/g,'').split('/').filter(Boolean);
+  return delen[1] || null;
+}
+
+async function initKoppelAccountPagina(){
+  const code = koppelAccountCode();
+  const container = document.getElementById('pageContent');
+  container.innerHTML = '<div style="text-align:center;padding:3rem;color:var(--text-muted)">Koppel-link controleren…</div>';
+  if(!code){ container.innerHTML = renderKoppelFout('Geen koppel-code opgegeven.'); return; }
+  const { data, error } = await db.from('gebruikers').select('id, naam, koppel_code_gebruikt').eq('koppel_code', code).maybeSingle();
+  if(error || !data){ container.innerHTML = renderKoppelFout('Deze koppel-link is niet geldig.'); return; }
+  if(data.koppel_code_gebruikt){ container.innerHTML = renderKoppelFout('Deze koppel-link is al gebruikt. Log in met je bestaande account, of vraag de beheerder om een nieuwe link.'); return; }
+  container.innerHTML = renderKoppelForm(data.naam);
+}
+
+function renderKoppelFout(msg){
+  return `<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;padding:1.5rem">
+    <div style="text-align:center;max-width:340px">
+      <i class="ti ti-alert-circle" style="font-size:32px;color:#dc2626"></i>
+      <div style="font-size:14px;color:var(--text-muted);margin-top:10px">${msg}</div>
+    </div>
+  </div>`;
+}
+
+function renderKoppelForm(naam){
+  return `<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;padding:1.5rem;background:var(--bg)">
+    <div style="width:100%;max-width:380px">
+      <div style="text-align:center;margin-bottom:1.5rem">
+        <i class="ti ti-ball-football" style="font-size:32px;color:var(--fcb-groen)"></i>
+        <div style="font-size:18px;font-weight:700;margin-top:6px">Welkom, ${naam}</div>
+        <div style="font-size:13px;color:var(--text-muted)">Stel je inloggegevens in om je account te koppelen</div>
+      </div>
+      <div class="card">
+        <div id="koppel-form-fout"></div>
+        <div style="margin-bottom:.75rem">
+          <label class="field-label">E-mailadres</label>
+          <input type="email" id="koppel-email" class="field-input" placeholder="naam@voorbeeld.nl" autocomplete="username">
+        </div>
+        <div style="margin-bottom:.75rem">
+          <label class="field-label">Wachtwoord (minimaal 8 tekens)</label>
+          <input type="password" id="koppel-wachtwoord" class="field-input" placeholder="••••••••" autocomplete="new-password">
+        </div>
+        <div style="margin-bottom:1rem">
+          <label class="field-label">Herhaal wachtwoord</label>
+          <input type="password" id="koppel-wachtwoord2" class="field-input" placeholder="••••••••" autocomplete="new-password" onkeydown="if(event.key==='Enter')voltooiKoppeling()">
+        </div>
+        <button class="btn-green" style="width:100%;justify-content:center" onclick="voltooiKoppeling()"><i class="ti ti-check" style="font-size:14px"></i> Account koppelen</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+async function voltooiKoppeling(){
+  const code = koppelAccountCode();
+  const email = document.getElementById('koppel-email')?.value.trim();
+  const wachtwoord = document.getElementById('koppel-wachtwoord')?.value;
+  const wachtwoord2 = document.getElementById('koppel-wachtwoord2')?.value;
+  const foutEl = document.getElementById('koppel-form-fout');
+  function toonFout(msg){ foutEl.innerHTML = `<div style="background:#fef2f2;border:1px solid #fca5a5;color:#991b1b;border-radius:var(--radius);padding:10px 12px;margin-bottom:1rem;font-size:13px">${msg}</div>`; }
+
+  if(!email||!wachtwoord||!wachtwoord2){ toonFout('Vul alle velden in'); return; }
+  if(wachtwoord.length<8){ toonFout('Wachtwoord moet minimaal 8 tekens zijn'); return; }
+  if(wachtwoord!==wachtwoord2){ toonFout('Wachtwoorden komen niet overeen'); return; }
+
+  // Stap 1: nieuw Supabase Auth account aanmaken
+  const { data: signUpData, error: signUpError } = await db.auth.signUp({ email, password:wachtwoord });
+  if(signUpError){ toonFout('Account aanmaken mislukt: '+signUpError.message); return; }
+  if(!signUpData.user){ toonFout('Account aanmaken mislukt, probeer het opnieuw'); return; }
+
+  // Stap 2: het nieuwe account koppelen aan het gebruikers-profiel, en de code als gebruikt markeren
+  const { error: koppelError } = await db.from('gebruikers')
+    .update({ auth_user_id: signUpData.user.id, email, koppel_code_gebruikt: true })
+    .eq('koppel_code', code)
+    .eq('koppel_code_gebruikt', false); // extra check: voorkomt dat een reeds-gebruikte code alsnog opnieuw koppelt
+  if(koppelError){ toonFout('Koppelen mislukt: '+koppelError.message); return; }
+
+  showToastOpKoppelpagina('Account gekoppeld! Je wordt ingelogd…');
+  setTimeout(()=>{ window.location.href = '/'; }, 1200);
+}
+function showToastOpKoppelpagina(msg){
+  const foutEl = document.getElementById('koppel-form-fout');
+  if(foutEl) foutEl.innerHTML = `<div style="background:var(--fcb-groen-licht);border:1px solid #b8e0bb;color:#1B5E20;border-radius:var(--radius);padding:10px 12px;margin-bottom:1rem;font-size:13px">${msg}</div>`;
+}
+
 let _fanKlokInterval = null;
 let _fanSpelers = []; // lichte spelerslijst (alleen naam+foto), puur voor foto's in de fan-tijdlijn
 
@@ -1119,12 +1332,14 @@ async function initFanLivePagina(){
   const { data, error } = await db.from('wedstrijden').select('*').eq('public_code', code).maybeSingle();
   if(error || !data){ toonFanFout('Deze wedstrijd is niet gevonden. Controleer de link.'); return; }
   const w = rijNaarWedstrijd(data);
-  // Spelersfoto's laden (alleen naam+foto+initialen nodig, geen seizoensgebonden data) voor de tijdlijn
-  const { data: spelersData } = await db.from('spelers').select('naam, foto, init');
+  // Spelersfoto's laden (alleen naam+foto+initialen nodig, geen seizoensgebonden data) voor de tijdlijn.
+  // Let op: dit gaat via de publieke view 'spelers_publiek' (niet de volledige 'spelers'-tabel),
+  // omdat die laatste sinds de invoering van accounts alleen voor ingelogde gebruikers leesbaar is.
+  const { data: spelersData } = await db.from('spelers_publiek').select('naam, foto, init');
   _fanSpelers = spelersData || [];
-  // Clublogo laden voor in het scorebord (staat normaal in 'instellingen', hier los opgehaald
-  // omdat de fan-modus verder geen instellingen laadt)
-  const { data: instellingenData } = await db.from('instellingen').select('club_logo').eq('id',1).maybeSingle();
+  // Clublogo laden voor in het scorebord, via de publieke view 'instellingen_publiek'
+  // (de volledige 'instellingen'-tabel is sinds accounts ook afgeschermd).
+  const { data: instellingenData } = await db.from('instellingen_publiek').select('club_logo').maybeSingle();
   if(instellingenData && instellingenData.club_logo) clubLogo = instellingenData.club_logo;
   renderFanLivePagina(w);
   clearInterval(_fanKlokInterval);
@@ -3421,30 +3636,67 @@ function deletBeeld(subId,beeldId){
 }
 
 // ---- ROLLEN ----
+const ROL_NIVEAU_LABELS = {
+  staf_lezen: 'Staf – alleen lezen',
+  staf_bewerken: 'Staf – bewerken',
+  staf_admin: 'Staf – admin',
+  speler: 'Speler'
+};
+const ROL_NIVEAU_KLEUREN = {
+  staf_lezen: {bg:'#f3f4f6', c:'#4b5563'},
+  staf_bewerken: {bg:'#e0f2fe', c:'#0369a1'},
+  staf_admin: {bg:'var(--fcb-groen-licht)', c:'#1B5E20'},
+  speler: {bg:'var(--fcb-geel-licht)', c:'#78610a'}
+};
+
 function renderRollen(){
-  const rolKleur={staf:'badge-staf',speler:'badge-speler',fan:'badge-fan'};
-  const rows=gebruikers.map(u=>`
-    <div class="user-row">
-      <div class="user-av" style="background:${u.rol==='staf'?'#e0f2fe':u.rol==='speler'?'var(--fcb-groen-licht)':'var(--fcb-geel-licht)'};color:${u.rol==='staf'?'#0369a1':u.rol==='speler'?'#1B5E20':'#78610a'}">${u.init}</div>
-      <div>
+  if(!isAdmin()){
+    return `<div class="card"><div style="text-align:center;padding:1.5rem;color:var(--text-muted);font-size:13px">
+      <i class="ti ti-lock" style="font-size:24px;display:block;margin-bottom:8px"></i>
+      Alleen een admin kan rollen en accounts beheren.
+    </div></div>`;
+  }
+  const rows=gebruikers.map(u=>{
+    const rk = ROL_NIVEAU_KLEUREN[u.rol_niveau] || ROL_NIVEAU_KLEUREN.staf_lezen;
+    const gekoppeld = !!u.auth_user_id;
+    return `
+    <div class="user-row" style="flex-wrap:wrap">
+      <div class="user-av" style="background:${rk.bg};color:${rk.c}">${u.init||u.naam.slice(0,2).toUpperCase()}</div>
+      <div style="flex:1;min-width:160px">
         <div style="font-size:14px;font-weight:600">${u.naam}</div>
-        <div style="font-size:12px;color:var(--text-muted);margin-top:1px">${u.email||'<em>Geen e-mail</em>'}</div>
+        <input type="text" value="${u.functie||''}" placeholder="Functie (bv. Assistent trainer)"
+          onchange="wijzigFunctieTitel(${u.id}, this.value)"
+          style="font-size:12px;color:var(--text-muted);border:none;background:none;padding:0;margin-top:1px;width:100%;font-family:inherit">
       </div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:5px">
-        <span class="${rolKleur[u.rol]}">${u.rol}</span>
-        <span style="font-size:11px;padding:2px 8px;border-radius:99px;${u.status==='actief'?'background:var(--fcb-groen-licht);color:#1B5E20':u.status==='uitgenodigd'?'background:#e0f2fe;color:#0369a1':'background:#f3f4f6;color:var(--text-muted)'}">${u.status}</span>
+        <select onchange="wijzigRolNiveau(${u.id}, this.value)" style="font-size:11px;padding:3px 6px;border-radius:99px;border:1px solid var(--border);background:${rk.bg};color:${rk.c};font-weight:600">
+          ${Object.entries(ROL_NIVEAU_LABELS).map(([k,l])=>`<option value="${k}"${u.rol_niveau===k?' selected':''}>${l}</option>`).join('')}
+        </select>
+        <span style="font-size:11px;padding:2px 8px;border-radius:99px;${gekoppeld?'background:var(--fcb-groen-licht);color:#1B5E20':'background:#f3f4f6;color:var(--text-muted)'}">${gekoppeld?'Account gekoppeld':'Nog niet gekoppeld'}</span>
       </div>
-    </div>`).join('');
+      <button class="btn-outline" style="font-size:11px;padding:4px 10px;width:100%;justify-content:center;margin-top:4px" onclick="toonKoppelUrl(${u.id})">
+        <i class="ti ti-link" style="font-size:12px"></i> ${gekoppeld?'Nieuwe koppel-link genereren':'Koppel-link genereren'}
+      </button>
+      <div id="koppel-url-${u.id}"></div>
+    </div>`;
+  }).join('');
   return`<div class="card">
-    <div class="card-hdr"><div class="card-title"><div class="gdot"></div>Gebruikers & rollen (${gebruikers.length})</div></div>
-    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:1rem;text-align:center">
-      ${[['Staf',gebruikers.filter(u=>u.rol==='staf').length,'#e0f2fe','#0369a1'],['Speler',gebruikers.filter(u=>u.rol==='speler').length,'var(--fcb-groen-licht)','#1B5E20'],['Fan',gebruikers.filter(u=>u.rol==='fan').length,'var(--fcb-geel-licht)','#78610a']].map(([l,n,bg,c])=>`
-        <div style="background:${bg};border-radius:var(--radius);padding:10px">
-          <div style="font-size:22px;font-weight:700;color:${c}">${n}</div>
-          <div style="font-size:11px;color:${c}">${l}</div>
-        </div>`).join('')}
+    <div class="card-hdr"><div class="card-title"><div class="gdot"></div>Staf & rollen (${gebruikers.length})</div></div>
+    <div style="font-size:12px;color:var(--text-muted);margin-bottom:1rem">
+      Genereer een koppel-link voor een staflid om zijn account te koppelen. De link kan maar één keer gebruikt worden.
     </div>
-    ${rows}
+    ${rows || '<div style="font-size:13px;color:var(--text-light);padding:12px 4px">Nog geen staf-leden</div>'}
+  </div>`;
+}
+
+async function toonKoppelUrl(gebruikerId){
+  const url = await genereerKoppelUrl(gebruikerId);
+  const container = document.getElementById(`koppel-url-${gebruikerId}`);
+  if(!container) return;
+  if(!url){ return; } // foutmelding is al getoond door genereerKoppelUrl zelf
+  container.innerHTML = `<div style="width:100%;margin-top:6px;padding:8px 10px;background:var(--bg);border-radius:8px;font-size:11px;word-break:break-all;display:flex;align-items:center;gap:6px">
+    <span style="flex:1">${url}</span>
+    <button onclick="navigator.clipboard.writeText('${url}').then(()=>showToast('Link gekopieerd!'))" style="background:none;border:none;cursor:pointer;color:var(--fcb-groen);flex-shrink:0"><i class="ti ti-copy" style="font-size:14px"></i></button>
   </div>`;
 }
 
@@ -5646,52 +5898,100 @@ function verwijderItemVeld(trainingId, oefId, itemIdx){
 }
 
 // ---- START ----
-if(isFanLivePad()){
-  // Publieke fan-weergave: geen sidebar/tabbar, geen normale app-data nodig.
-  document.body.classList.add('fan-live-modus');
-  initFanLivePagina();
-} else {
+async function startApp(){
+  if(isFanLivePad()){
+    // Publieke fan-weergave: geen sidebar/tabbar, geen login nodig.
+    document.body.classList.add('fan-live-modus');
+    initFanLivePagina();
+    return;
+  }
 
-const { pagina: _startPagina, code: _startCode } = ontleedUrl(); // bewaar de eventuele code VOORDAT we de URL normaliseren
-page = _startPagina; // toon direct de juiste hoofdpagina op basis van het huidige URL-pad
-// Als het pad niet overeenkwam met een geldige pagina (bv. verkeerd getypt of een oude link),
-// normaliseren we de adresbalk naar de daadwerkelijk getoonde pagina (nog zonder code, die volgt pas
-// als de data geladen is en we de code naar een echt record kunnen vertalen).
-window.history.replaceState({page}, '', page==='dashboard' ? '/' : '/'+page);
-draw(); // teken direct met de ingebouwde standaardlijst, zodat het scherm niet leeg is
-werkActieveNavigatieBij(page);
-laadInstellingenUitDatabase(); // clubnaam en logo (onafhankelijk van seizoenen)
+  if(isKoppelAccountPad()){
+    // Koppel-account pagina: geen sidebar/tabbar, geen bestaande sessie nodig
+    // (de persoon heeft immers nog geen account totdat dit proces is voltooid).
+    document.body.classList.add('fan-live-modus'); // dezelfde 'kale' opmaak hergebruiken (geen sidebar/tabbar)
+    initKoppelAccountPagina();
+    return;
+  }
 
-// Volgorde is belangrijk: eerst het actieve seizoen weten, dan pas spelers verrijken, dan wedstrijden/trainingen filteren
-laadSeizoenenUitDatabase()
-  .then(()=>laadSpelersUitDatabase())
-  .then(dbWasLeeg=>{
-    // Als de tabel nog leeg was (nieuw Supabase-project), vullen we hem eenmalig
-    if(dbWasLeeg) return eenmaligeSeedNaarDatabase().then(laadSpelersUitDatabase);
-  })
-  .then(()=>laadWedstrijdenUitDatabase())
-  .then(()=>laadTrainingenUitDatabase())
-  .then(()=>laadTegenstandersUitDatabase())
-  .then(()=>{
-    // Nu alle data geladen is: als de oorspronkelijke URL een specifieke code bevatte
-    // (bv. /spelers/a3f9k2m1), proberen we die alsnog te herstellen.
-    if(_startCode){
-      if(page==='spelers'){
-        const sp = spelers.find(s=>s.publicCode===_startCode);
-        if(sp) activeSpelerId = sp.id;
-      } else if(page==='wedstrijden'){
-        const w = wedstrijden.find(x=>x.publicCode===_startCode);
-        if(w) activeWedstrijdId = w.id;
-      } else if(page==='trainingen'){
-        const t = trainingen.find(x=>x.publicCode===_startCode);
-        if(t) activeTrainingId = t.id;
+  // Normale app: eerst checken of er een actieve sessie is. Zonder sessie: login-scherm tonen
+  // en hier stoppen (geen enkele data laden -- dat mag pas na een succesvolle login, want de
+  // database staat nu achter authenticatie).
+  const { data: { session } } = await db.auth.getSession();
+  huidigeSessie = session;
+  if(!huidigeSessie){
+    document.body.classList.add('fan-live-modus'); // kale opmaak, geen sidebar/tabbar tijdens het inloggen
+    document.getElementById('pageContent').innerHTML = renderLoginScherm();
+    return;
+  }
+  await laadHuidigeGebruiker();
+  if(!huidigeGebruiker){
+    // Ingelogd, maar aan geen enkel profiel gekoppeld -- kan gebeuren als een account handmatig
+    // is aangemaakt zonder koppel-proces. Toon een duidelijke melding i.p.v. een kapotte app.
+    document.body.classList.add('fan-live-modus');
+    document.getElementById('pageContent').innerHTML = `<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;padding:1.5rem">
+      <div style="text-align:center;max-width:340px">
+        <i class="ti ti-alert-circle" style="font-size:32px;color:#dc2626"></i>
+        <div style="font-size:14px;color:var(--text-muted);margin-top:10px">Je account is niet gekoppeld aan een profiel. Neem contact op met de beheerder.</div>
+        <button class="btn-outline" style="margin-top:1rem" onclick="logUit()">Uitloggen</button>
+      </div>
+    </div>`;
+    return;
+  }
+
+  // Vanaf hier: normale, ingelogde app-flow (ongewijzigd t.o.v. voorheen)
+  const { pagina: _startPagina, code: _startCode } = ontleedUrl(); // bewaar de eventuele code VOORDAT we de URL normaliseren
+  page = _startPagina; // toon direct de juiste hoofdpagina op basis van het huidige URL-pad
+  window.history.replaceState({page}, '', page==='dashboard' ? '/' : '/'+page);
+  draw(); // teken direct met de ingebouwde standaardlijst, zodat het scherm niet leeg is
+  werkActieveNavigatieBij(page);
+  laadInstellingenUitDatabase(); // clubnaam en logo (onafhankelijk van seizoenen)
+
+  // Volgorde is belangrijk: eerst het actieve seizoen weten, dan pas spelers verrijken, dan wedstrijden/trainingen filteren
+  laadSeizoenenUitDatabase()
+    .then(()=>laadSpelersUitDatabase())
+    .then(dbWasLeeg=>{
+      // Als de tabel nog leeg was (nieuw Supabase-project), vullen we hem eenmalig
+      if(dbWasLeeg) return eenmaligeSeedNaarDatabase().then(laadSpelersUitDatabase);
+    })
+    .then(()=>laadWedstrijdenUitDatabase())
+    .then(()=>laadTrainingenUitDatabase())
+    .then(()=>laadTegenstandersUitDatabase())
+    .then(()=>laadGebruikersUitDatabase())
+    .then(()=>{
+      // Profiel-weergave (rechtsboven) synchroniseren met de daadwerkelijke, ingelogde gebruiker
+      if(huidigeGebruiker){
+        profiel.naam = huidigeGebruiker.naam;
+        if(huidigeGebruiker.bron==='gebruikers'){
+          const g = gebruikers.find(x=>x.id===huidigeGebruiker.id);
+          if(g && g.functie) profiel.rol = g.functie;
+        } else {
+          profiel.rol = 'Speler';
+        }
+        draw();
       }
-      werkActieveNavigatieBij(page);
-      draw();
-    }
-  });
+    })
+    .then(()=>{
+      // Nu alle data geladen is: als de oorspronkelijke URL een specifieke code bevatte
+      // (bv. /spelers/a3f9k2m1), proberen we die alsnog te herstellen.
+      if(_startCode){
+        if(page==='spelers'){
+          const sp = spelers.find(s=>s.publicCode===_startCode);
+          if(sp) activeSpelerId = sp.id;
+        } else if(page==='wedstrijden'){
+          const w = wedstrijden.find(x=>x.publicCode===_startCode);
+          if(w) activeWedstrijdId = w.id;
+        } else if(page==='trainingen'){
+          const t = trainingen.find(x=>x.publicCode===_startCode);
+          if(t) activeTrainingId = t.id;
+        }
+        werkActieveNavigatieBij(page);
+        draw();
+      }
+    });
+}
 
-} // einde van de 'else' tak (normale app-modus, als tegenhanger van isFanLivePad())
+startApp();
 </script>
 </body>
 </html>
