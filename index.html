@@ -372,11 +372,11 @@ body.fan-live-modus .main-area{padding:1rem !important;margin:0 !important}
       </div>
       <button class="tb-user" onclick="openProfiel()">
         <div class="tb-user-txt">
-          <span class="tb-user-name" id="gebruikerNaam">Jorian den Otter</span>
-          <span class="tb-user-role">Hoofdtrainer</span>
+          <span class="tb-user-name" id="gebruikerNaam"></span>
+          <span class="tb-user-role" id="gebruikerRol"></span>
         </div>
         <div class="tb-avatar" id="profielAvatar">
-          <span id="profielInit">JO</span>
+          <span id="profielInit"></span>
         </div>
       </button>
     </header>
@@ -503,7 +503,7 @@ function toonLoginFout(msg){
 let clubNaam = 'FC Binnenmaas 1';
 let clubLogo = null; // wordt gevuld vanuit Supabase bij het opstarten
 let ontwikkelingIngeschakeld = true; // instelbaar via Beheer team -> Functies
-let profiel = { naam:'Jorian den Otter', rol:'Hoofdtrainer', foto:null };
+let profiel = { naam:'', rol:'', foto:null }; // wordt gevuld zodra de ingelogde gebruiker bekend is
 let seizoenen = [
   {id:1,naam:'2024/2025',actief:false},
   {id:2,naam:'2025/2026',actief:false},
@@ -777,7 +777,7 @@ async function wijzigFunctieTitel(gebruikerId, nieuweFunctie){
   // Als dit de ingelogde gebruiker zelf is: ook de topbar-weergave direct bijwerken
   if(huidigeGebruiker && huidigeGebruiker.bron==='gebruikers' && huidigeGebruiker.id===gebruikerId){
     profiel.rol = nieuweFunctie;
-    const roleEl=document.getElementById('profielRolLabel');
+    const roleEl=document.getElementById('gebruikerRol');
     if(roleEl) roleEl.textContent=nieuweFunctie;
   }
   showToast('Functie bijgewerkt');
@@ -1573,7 +1573,7 @@ function draw(){
 function syncTopbar(){
   const naamEl=document.getElementById('gebruikerNaam');
   if(naamEl) naamEl.textContent=profiel.naam;
-  const roleEl=document.querySelector('.tb-user-role');
+  const roleEl=document.getElementById('gebruikerRol');
   if(roleEl) roleEl.textContent=profiel.rol;
   const av=document.getElementById('profielAvatar');
   if(av){
