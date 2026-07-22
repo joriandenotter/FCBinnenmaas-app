@@ -1392,7 +1392,7 @@ function renderFanLivePagina(w){
     ? '<div style="text-align:center;padding:1.5rem;color:var(--text-light);font-size:13px">Nog geen events</div>'
     : [...w.events].reverse().map(e=>{
         if(e.type==='wissel'){
-          return `<div class="fan-event"><div class="fan-event-min">${e.min}'</div><div class="fan-event-icon" style="background:#e0f2fe"><i class="ti ti-arrows-exchange" style="color:#0369a1;font-size:16px"></i></div><div class="fan-event-tekst">Wissel</div></div>`;
+          return `<div class="fan-event"><div class="fan-event-min">${e.min}'</div><div class="fan-event-icon" style="background:#e0f2fe"><i class="ti ti-arrows-exchange" style="color:#0369a1;font-size:16px"></i></div>${fanFotoVoorNaam(e.in)}<div class="fan-event-tekst">${e.in||'?'} <span style="color:var(--text-muted);font-weight:400">voor ${e.uit||'?'}</span></div></div>`;
         }
         if(e.type==='kaart'){
           const kleurHex = e.kleur==='rood'?'#dc2626':'#facc15';
@@ -2854,11 +2854,10 @@ function renderWedstrijdEvents(w){
     ?`<div style="text-align:center;padding:1.5rem;color:var(--text-muted);font-size:13px">Geen events geregistreerd</div>`
     :w.events.map(e=>{
       if(e.type==='wissel'){
-        const uit=spelers.find(s=>s.id===Number(e.uit)), inSp=spelers.find(s=>s.id===Number(e.in));
         return `<div class="event-row">
           <span class="event-min">${e.min}'</span>
           <i class="ti ti-arrows-exchange" style="color:#0369a1;font-size:15px;flex-shrink:0"></i>
-          <span style="font-size:13px"><span style="color:#dc2626">${uit?uit.naam:'?'}</span> → <span style="color:var(--fcb-groen)">${inSp?inSp.naam:'?'}</span></span>
+          <span style="font-size:13px"><span style="color:#dc2626">${e.uit||'?'}</span> → <span style="color:var(--fcb-groen)">${e.in||'?'}</span></span>
         </div>`;
       }
       return `<div class="event-row">
@@ -3144,8 +3143,7 @@ function renderWedstrijdLive(w){
     ? '<div style="text-align:center;padding:1rem;color:var(--text-light);font-size:13px">Nog geen events</div>'
     : [...w.events].reverse().map(e=>{
         if(e.type==='wissel'){
-          const uit=spelers.find(s=>s.id===Number(e.uit)), inSp=spelers.find(s=>s.id===Number(e.in));
-          return `<div class="event-row"><span class="event-min">${e.min}\'</span><i class="ti ti-arrows-exchange" style="color:#0369a1;font-size:15px"></i>${fotoVoorNaam(inSp?inSp.naam:'')}<span style="font-size:13px"><span style="color:#dc2626">${uit?uit.naam:'?'}</span> → <span style="color:var(--fcb-groen)">${inSp?inSp.naam:'?'}</span></span></div>`;
+          return `<div class="event-row"><span class="event-min">${e.min}\'</span><i class="ti ti-arrows-exchange" style="color:#0369a1;font-size:15px"></i>${fotoVoorNaam(e.in)}<span style="font-size:13px"><span style="color:#dc2626">${e.uit||'?'}</span> → <span style="color:var(--fcb-groen)">${e.in||'?'}</span></span></div>`;
         }
         if(e.type==='kaart'){
           const kleurHex = e.kleur==='rood'?'#dc2626':'#facc15';
@@ -3252,6 +3250,9 @@ function registreerWissel(wedstrijdId, uitId, inId){
   const w = ensureWedstrijdVelden(wedstrijden.find(x=>x.id===wedstrijdId));
   const min = Math.floor(klokSeconds()/60)+1;
   w.wissels.push({min, uit:Number(uitId), in:Number(inId)});
+  const uitSp = spelers.find(s=>s.id===Number(uitId));
+  const inSp = spelers.find(s=>s.id===Number(inId));
+  w.events.push({type:'wissel', min, uit:uitSp?uitSp.naam:'Onbekend', in:inSp?inSp.naam:'Onbekend'});
   syncWedstrijdNaarDatabase(w);
   liveActie=null;
   draw();
