@@ -759,6 +759,36 @@ async function laadGebruikersUitDatabase(){
   gebruikers = data||[];
 }
 
+// ============================================================
+// SUPABASE: laden en synchroniseren van ontwikkelscores (per speler, per sub-onderdeel)
+// ============================================================
+let ontwikkelscores = {}; // {spelerId: {subId: score}}
+
+async function laadOntwikkelscoresUitDatabase(){
+  const { data, error } = await db.from('ontwikkelscores').select('*');
+  if(error){ console.error('Fout bij laden ontwikkelscores:', error.message||error, error); showToast('Kon ontwikkelscores niet laden: '+(error.message||'onbekende fout'), 'fout'); return; }
+  ontwikkelscores = {};
+  (data||[]).forEach(r=>{
+    if(!ontwikkelscores[r.speler_id]) ontwikkelscores[r.speler_id] = {};
+    ontwikkelscores[r.speler_id][r.sub_id] = r.score;
+  });
+}
+
+// Haalt de score op voor een speler+sub-onderdeel. Onbekende combinaties tellen als 0.
+function getOntwikkelscore(spelerId, subId){
+  return (ontwikkelscores[spelerId] && ontwikkelscores[spelerId][subId]) || 0;
+}
+
+async function zetOntwikkelscore(spelerId, subId, nieuweScore){
+  if(!magBewerken()){ showToast('Alleen Staf – bewerken of Staf – admin mag ontwikkelscores wijzigen', 'fout'); return; }
+  nieuweScore = Math.max(0, Math.min(100, Math.round(nieuweScore/5)*5)); // altijd afronden op veelvoud van 5, binnen 0-100
+  const { error } = await db.from('ontwikkelscores').upsert({speler_id:spelerId, sub_id:subId, score:nieuweScore}, {onConflict:'speler_id,sub_id'});
+  if(error){ console.error('Fout bij opslaan ontwikkelscore:', error.message||error, error); showToast('Opslaan mislukt: '+(error.message||'controleer verbinding'), 'fout'); return; }
+  if(!ontwikkelscores[spelerId]) ontwikkelscores[spelerId] = {};
+  ontwikkelscores[spelerId][subId] = nieuweScore;
+  draw();
+}
+
 async function wijzigRolNiveau(gebruikerId, nieuwRolNiveau){
   if(!isAdmin()){ showToast('Alleen een admin mag rollen wijzigen', 'fout'); return; }
   const { error } = await db.from('gebruikers').update({rol_niveau:nieuwRolNiveau}).eq('id', gebruikerId);
@@ -3578,8 +3608,10 @@ function renderOntwikkeling(){
     </div>`;
 
   const catCards=CATS.map(cat=>{
-    const avg=Math.round(cat.subs.reduce((a,s)=>a+s.score,0)/cat.subs.length);
+    const scores = cat.subs.map(s=>getOntwikkelscore(sp.id, s.id));
+    const avg=Math.round(scores.reduce((a,b)=>a+b,0)/cat.subs.length);
     const subRows=cat.subs.map(sub=>{
+      const score = getOntwikkelscore(sp.id, sub.id);
       const isOpen=expandedSubs[sub.id];
       const activeFilter=subFilters[sub.id]||'all';
       const filtered=filterBeelden(sub.beelden,activeFilter);
@@ -3587,6 +3619,15 @@ function renderOntwikkeling(){
 
       const beeldPanel=isOpen?`
         <div style="background:#f9f9f9;border-top:1px solid var(--border);padding:12px 14px">
+          ${magBewerken()?`<div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;padding-bottom:12px;border-bottom:1px solid var(--border)">
+            <span style="font-size:11px;color:var(--text-muted);flex-shrink:0">Score aanpassen:</span>
+            <button onclick="zetOntwikkelscore(${sp.id},'${sub.id}',${score}-5)" ${score<=0?'disabled':''} style="width:26px;height:26px;border-radius:50%;border:1px solid var(--border);background:var(--white);cursor:pointer;font-weight:700;color:${cat.kleur};flex-shrink:0">−</button>
+            <div style="flex:1;height:8px;background:#e5e7eb;border-radius:4px;overflow:hidden">
+              <div style="height:100%;border-radius:4px;background:${cat.kleur};width:${score}%;transition:width .15s"></div>
+            </div>
+            <button onclick="zetOntwikkelscore(${sp.id},'${sub.id}',${score}+5)" ${score>=100?'disabled':''} style="width:26px;height:26px;border-radius:50%;border:1px solid var(--border);background:var(--white);cursor:pointer;font-weight:700;color:${cat.kleur};flex-shrink:0">+</button>
+            <span style="font-size:13px;font-weight:700;width:38px;text-align:right;flex-shrink:0">${score}%</span>
+          </div>`:''}
           ${total>0?`<div style="display:flex;align-items:center;gap:6px;margin-bottom:10px;flex-wrap:wrap">
             <span style="font-size:11px;color:var(--text-muted)"><i class="ti ti-clock" style="font-size:12px;vertical-align:-1px"></i> Periode:</span>
             ${FILTERS.map(f=>`<span onclick="subFilters['${sub.id}']='${f.key}';draw()" style="padding:3px 10px;border-radius:99px;font-size:11px;cursor:pointer;border:1px solid ${activeFilter===f.key?cat.kleur:'var(--border)'};background:${activeFilter===f.key?cat.kleur+'15':'var(--white)'};color:${activeFilter===f.key?cat.kleur:'var(--text-muted)'};font-weight:${activeFilter===f.key?'600':'400'}">${f.label}</span>`).join('')}
@@ -3627,9 +3668,9 @@ function renderOntwikkeling(){
             <i class="ti ti-chevron-${isOpen?'down':'right'}" style="font-size:13px;color:var(--text-muted);flex-shrink:0"></i>
             <span style="font-size:13px;flex:1">${sub.naam}${total>0?` <span style="font-size:10px;background:#e0f2fe;color:#0369a1;padding:1px 6px;border-radius:99px;margin-left:4px">${total}</span>`:''}</span>
             <div style="flex:1;height:6px;background:#e5e7eb;border-radius:3px;overflow:hidden;max-width:120px" onclick="event.stopPropagation()">
-              <div style="height:100%;border-radius:3px;background:${cat.kleur};width:${sub.score}%"></div>
+              <div style="height:100%;border-radius:3px;background:${cat.kleur};width:${score}%"></div>
             </div>
-            <span style="font-size:12px;font-weight:600;width:34px;text-align:right" onclick="event.stopPropagation()">${sub.score}%</span>
+            <span style="font-size:12px;font-weight:600;width:34px;text-align:right" onclick="event.stopPropagation()">${score}%</span>
           </div>
           ${beeldPanel}
         </div>`;
@@ -5986,6 +6027,7 @@ async function startApp(){
     .then(()=>laadTrainingenUitDatabase())
     .then(()=>laadTegenstandersUitDatabase())
     .then(()=>laadGebruikersUitDatabase())
+    .then(()=>laadOntwikkelscoresUitDatabase())
     .then(()=>{
       // Profiel-weergave (rechtsboven) synchroniseren met de daadwerkelijke, ingelogde gebruiker
       if(huidigeGebruiker){
