@@ -435,12 +435,12 @@ async function laadHuidigeGebruiker(){
   const uid = huidigeSessie.user.id;
   const { data: gebruiker } = await db.from('gebruikers').select('*').eq('auth_user_id', uid).maybeSingle();
   if(gebruiker){
-    huidigeGebruiker = { id:gebruiker.id, naam:gebruiker.naam, rolNiveau:gebruiker.rol_niveau||ROL_STAF_LEZEN, bron:'gebruikers' };
+    huidigeGebruiker = { id:gebruiker.id, naam:gebruiker.naam, rolNiveau:gebruiker.rol_niveau||ROL_STAF_LEZEN, foto:gebruiker.foto||null, bron:'gebruikers' };
     return;
   }
-  const { data: speler } = await db.from('spelers').select('id, naam').eq('auth_user_id', uid).maybeSingle();
+  const { data: speler } = await db.from('spelers').select('id, naam, foto').eq('auth_user_id', uid).maybeSingle();
   if(speler){
-    huidigeGebruiker = { id:speler.id, naam:speler.naam, rolNiveau:ROL_SPELER, bron:'spelers' };
+    huidigeGebruiker = { id:speler.id, naam:speler.naam, rolNiveau:ROL_SPELER, foto:speler.foto||null, bron:'spelers' };
     return;
   }
   // Ingelogd bij Supabase Auth, maar nog aan geen enkel profiel gekoppeld (zou niet moeten voorkomen
@@ -2575,10 +2575,15 @@ function renderVerwijderWedstrijdDialoog(w){
   </div>`;
 }
 
-function bevestigVerwijderWedstrijd(wedstrijdId){
+async function bevestigVerwijderWedstrijd(wedstrijdId){
   if(blokkeerInArchief()) return;
+  const { error } = await db.from('wedstrijden').delete().eq('id', wedstrijdId);
+  if(error){
+    console.error('Fout bij verwijderen wedstrijd:', error.message||error, error);
+    showToast('Verwijderen mislukt: '+(error.message||'controleer je rechten'), 'fout');
+    return; // de lokale lijst NIET bijwerken, want de database-verwijdering is niet gelukt
+  }
   wedstrijden = wedstrijden.filter(x=>x.id!==wedstrijdId);
-  verwijderWedstrijdUitDatabase(wedstrijdId);
   verwijderWedstrijdId=null;
   activeWedstrijdId=null;
   showToast('Wedstrijd verwijderd');
@@ -3729,33 +3734,62 @@ function renderRollen(){
     const rk = ROL_NIVEAU_KLEUREN[u.rol_niveau] || ROL_NIVEAU_KLEUREN.staf_lezen;
     const gekoppeld = !!u.auth_user_id;
     return `
-    <div class="user-row" style="flex-wrap:wrap">
-      <div class="user-av" style="background:${rk.bg};color:${rk.c}">${u.init||u.naam.slice(0,2).toUpperCase()}</div>
-      <div style="flex:1;min-width:160px">
-        <div style="font-size:14px;font-weight:600">${u.naam}</div>
-        <input type="text" value="${u.functie||''}" placeholder="Functie (bv. Assistent trainer)"
-          onchange="wijzigFunctieTitel(${u.id}, this.value)"
-          style="font-size:12px;color:var(--text-muted);border:none;background:none;padding:0;margin-top:1px;width:100%;font-family:inherit">
+    <div class="rollen-rij" style="border:1px solid var(--border);border-radius:var(--radius);padding:10px 12px;margin-bottom:8px">
+      <div style="display:flex;align-items:center;gap:10px">
+        <div onclick="document.getElementById('staf-foto-${u.id}').click()" title="Klik om foto te wijzigen" style="width:38px;height:38px;border-radius:50%;overflow:hidden;flex-shrink:0;cursor:pointer;background:${rk.bg};color:${rk.c};display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:600">
+          ${u.foto?`<img src="${u.foto}" style="width:100%;height:100%;object-fit:cover">`:(u.init||u.naam.slice(0,2).toUpperCase())}
+        </div>
+        <input type="file" id="staf-foto-${u.id}" accept="image/*" style="display:none" onchange="uploadStafFoto(event,${u.id})">
+        <div style="flex:1;min-width:0">
+          <div style="font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${u.naam}</div>
+          <input type="text" value="${u.functie||''}" placeholder="Functie (bv. Assistent trainer)"
+            onchange="wijzigFunctieTitel(${u.id}, this.value)"
+            style="font-size:12px;color:var(--text-muted);border:none;background:none;padding:0;margin-top:1px;width:100%;font-family:inherit">
+        </div>
       </div>
-      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:5px">
-        <select onchange="wijzigRolNiveau(${u.id}, this.value)" style="font-size:11px;padding:3px 6px;border-radius:99px;border:1px solid var(--border);background:${rk.bg};color:${rk.c};font-weight:600">
+      <div style="margin-top:8px">
+        <select onchange="wijzigRolNiveau(${u.id}, this.value)" style="width:100%;font-size:12px;padding:5px 8px;border-radius:var(--radius);border:1px solid var(--border);background:${rk.bg};color:${rk.c};font-weight:600">
           ${Object.entries(ROL_NIVEAU_LABELS).map(([k,l])=>`<option value="${k}"${u.rol_niveau===k?' selected':''}>${l}</option>`).join('')}
         </select>
-        <span style="font-size:11px;padding:2px 8px;border-radius:99px;${gekoppeld?'background:var(--fcb-groen-licht);color:#1B5E20':'background:#f3f4f6;color:var(--text-muted)'}">${gekoppeld?'Account gekoppeld':'Nog niet gekoppeld'}</span>
       </div>
-      <button class="btn-outline" style="font-size:11px;padding:4px 10px;width:100%;justify-content:center;margin-top:4px" onclick="toonKoppelUrl(${u.id})">
-        <i class="ti ti-link" style="font-size:12px"></i> ${gekoppeld?'Nieuwe koppel-link genereren':'Koppel-link genereren'}
-      </button>
+      <div style="display:flex;align-items:center;gap:8px;margin-top:8px;padding-top:8px;border-top:1px solid var(--border-soft)">
+        <span style="font-size:11px;padding:2px 8px;border-radius:99px;flex-shrink:0;${gekoppeld?'background:var(--fcb-groen-licht);color:#1B5E20':'background:#f3f4f6;color:var(--text-muted)'}">${gekoppeld?'Gekoppeld':'Niet gekoppeld'}</span>
+        <button class="icon-btn" style="margin-left:auto" onclick="toonKoppelUrl(${u.id})" title="${gekoppeld?'Nieuwe koppel-link genereren':'Koppel-link genereren'}">
+          <i class="ti ti-link" style="font-size:14px"></i>
+        </button>
+      </div>
       <div id="koppel-url-${u.id}"></div>
     </div>`;
   }).join('');
   return`<div class="card">
     <div class="card-hdr"><div class="card-title"><div class="gdot"></div>Staf & rollen (${gebruikers.length})</div></div>
     <div style="font-size:12px;color:var(--text-muted);margin-bottom:1rem">
-      Genereer een koppel-link voor een staflid om zijn account te koppelen. De link kan maar één keer gebruikt worden.
+      Klik op een pasfoto om te wijzigen. Klik op <i class="ti ti-link" style="font-size:12px;vertical-align:-1px"></i> voor een eenmalige koppel-link.
     </div>
     ${rows || '<div style="font-size:13px;color:var(--text-light);padding:12px 4px">Nog geen staf-leden</div>'}
   </div>`;
+}
+
+async function uploadStafFoto(e, gebruikerId){
+  const file=e.target.files[0];
+  if(!file) return;
+  const r=new FileReader();
+  r.onload=async ev=>{
+    const gecomprimeerd = await comprimeerAfbeelding(ev.target.result);
+    const { error } = await db.from('gebruikers').update({foto:gecomprimeerd}).eq('id', gebruikerId);
+    if(error){ console.error('Fout bij opslaan staf-foto:', error.message||error, error); showToast('Foto opslaan mislukt: '+(error.message||'controleer verbinding'), 'fout'); return; }
+    const g = gebruikers.find(x=>x.id===gebruikerId);
+    if(g) g.foto = gecomprimeerd;
+    // Als dit de ingelogde gebruiker zelf is: ook de topbar-avatar direct bijwerken
+    if(huidigeGebruiker && huidigeGebruiker.bron==='gebruikers' && huidigeGebruiker.id===gebruikerId){
+      profiel.foto = gecomprimeerd;
+      huidigeGebruiker.foto = gecomprimeerd;
+      syncTopbar();
+    }
+    showToast('Foto bijgewerkt');
+    draw();
+  };
+  r.readAsDataURL(file);
 }
 
 async function toonKoppelUrl(gebruikerId){
@@ -3763,7 +3797,7 @@ async function toonKoppelUrl(gebruikerId){
   const container = document.getElementById(`koppel-url-${gebruikerId}`);
   if(!container) return;
   if(!url){ return; } // foutmelding is al getoond door genereerKoppelUrl zelf
-  container.innerHTML = `<div style="width:100%;margin-top:6px;padding:8px 10px;background:var(--bg);border-radius:8px;font-size:11px;word-break:break-all;display:flex;align-items:center;gap:6px">
+  container.innerHTML = `<div style="width:100%;margin-top:8px;padding:8px 10px;background:var(--bg);border-radius:8px;font-size:11px;word-break:break-all;display:flex;align-items:center;gap:6px">
     <span style="flex:1">${url}</span>
     <button onclick="navigator.clipboard.writeText('${url}').then(()=>showToast('Link gekopieerd!'))" style="background:none;border:none;cursor:pointer;color:var(--fcb-groen);flex-shrink:0"><i class="ti ti-copy" style="font-size:14px"></i></button>
   </div>`;
@@ -4034,13 +4068,18 @@ function renderVerwijderSeizoenDialoog(){
   </div>`;
 }
 
-function bevestigVerwijderSeizoen(){
+async function bevestigVerwijderSeizoen(){
   const id=verwijderSeizoenId;
   const s=seizoenen.find(x=>x.id===id);
   if(!s){ verwijderSeizoenId=null; verwijderSeizoenImpact=null; draw(); return; }
+  const { error } = await db.from('seizoenen').delete().eq('id', id);
+  if(error){
+    console.error('Fout bij verwijderen seizoen:', error.message||error, error);
+    showToast('Verwijderen mislukt: '+(error.message||'controleer je rechten'), 'fout');
+    return; // de lokale lijst NIET bijwerken, want de database-verwijdering is niet gelukt
+  }
   seizoenen.splice(seizoenen.indexOf(s),1);
   spelerSeizoenen = spelerSeizoenen.filter(ss=>ss.seizoen_id!==id); // lokaal ook opschonen (database ruimt dit vanzelf op via cascade)
-  verwijderSeizoenUitDatabase(id);
   verwijderSeizoenId=null;
   verwijderSeizoenImpact=null;
   // Als je toevallig dit seizoen aan het bekijken (archief) was: terug naar het echte actieve seizoen
@@ -6032,6 +6071,7 @@ async function startApp(){
       // Profiel-weergave (rechtsboven) synchroniseren met de daadwerkelijke, ingelogde gebruiker
       if(huidigeGebruiker){
         profiel.naam = huidigeGebruiker.naam;
+        profiel.foto = huidigeGebruiker.foto || null;
         if(huidigeGebruiker.bron==='gebruikers'){
           const g = gebruikers.find(x=>x.id===huidigeGebruiker.id);
           if(g && g.functie) profiel.rol = g.functie;
