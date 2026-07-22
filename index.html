@@ -1304,15 +1304,23 @@ async function voltooiKoppeling(){
 
   // Stap 1: nieuw Supabase Auth account aanmaken
   const { data: signUpData, error: signUpError } = await db.auth.signUp({ email, password:wachtwoord });
-  if(signUpError){ toonFout('Account aanmaken mislukt: '+signUpError.message); return; }
+  if(signUpError){
+    if(signUpError.message && signUpError.message.toLowerCase().includes('already registered')){
+      toonFout('Dit e-mailadres heeft al een account. Gebruik een ander e-mailadres, of neem contact op met de beheerder om je bestaande account te laten koppelen.');
+    } else {
+      toonFout('Account aanmaken mislukt: '+signUpError.message);
+    }
+    return;
+  }
   if(!signUpData.user){ toonFout('Account aanmaken mislukt, probeer het opnieuw'); return; }
 
-  // Stap 2: het nieuwe account koppelen aan het gebruikers-profiel, en de code als gebruikt markeren
-  const { error: koppelError } = await db.from('gebruikers')
-    .update({ auth_user_id: signUpData.user.id, email, koppel_code_gebruikt: true })
-    .eq('koppel_code', code)
-    .eq('koppel_code_gebruikt', false); // extra check: voorkomt dat een reeds-gebruikte code alsnog opnieuw koppelt
+  // Stap 2: het nieuwe account koppelen aan het gebruikers-profiel, via een speciale database-
+  // functie die dit veilig doet (buiten de normale RLS-regels om, met eigen ingebouwde checks).
+  const { data: koppelResultaat, error: koppelError } = await db.rpc('koppel_account', {
+    p_koppel_code: code, p_auth_user_id: signUpData.user.id, p_email: email
+  });
   if(koppelError){ toonFout('Koppelen mislukt: '+koppelError.message); return; }
+  if(!koppelResultaat){ toonFout('Deze koppel-link is niet (meer) geldig.'); return; }
 
   showToastOpKoppelpagina('Account gekoppeld! Je wordt ingelogd…');
   setTimeout(()=>{ window.location.href = '/'; }, 1200);
