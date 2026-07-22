@@ -435,7 +435,10 @@ async function laadHuidigeGebruiker(){
   const uid = huidigeSessie.user.id;
   const { data: gebruiker } = await db.from('gebruikers').select('*').eq('auth_user_id', uid).maybeSingle();
   if(gebruiker){
-    huidigeGebruiker = { id:gebruiker.id, naam:gebruiker.naam, rolNiveau:gebruiker.rol_niveau||ROL_STAF_LEZEN, foto:gebruiker.foto||null, bron:'gebruikers' };
+    // Foto komt uit de spelers-tabel (type:'staf'), op naam gematcht -- er is geen apart
+    // foto-veld meer bij 'gebruikers' zelf, dat zou dubbel beheer betekenen.
+    const { data: stafSpeler } = await db.from('spelers').select('foto').eq('type','staf').ilike('naam', gebruiker.naam).maybeSingle();
+    huidigeGebruiker = { id:gebruiker.id, naam:gebruiker.naam, rolNiveau:gebruiker.rol_niveau||ROL_STAF_LEZEN, foto:stafSpeler?.foto||null, bron:'gebruikers' };
     return;
   }
   const { data: speler } = await db.from('spelers').select('id, naam, foto').eq('auth_user_id', uid).maybeSingle();
@@ -1758,12 +1761,25 @@ function renderDashboard(){
     </div>`).join('');
   // Top 5 statistieken (alleen spelers, type team, die dit seizoen meedoen)
   const teamSpelers = spelersInActiefSeizoen().filter(s=>s.type==='team');
+  // Doelpunten/assists worden LIVE herberekend uit de events van nog-bestaande, gespeelde
+  // wedstrijden (niet uit de cumulatieve tellers op de speler zelf, want die tellers worden
+  // nooit teruggedraaid als een wedstrijd later wordt verwijderd -- dat gaf verouderde cijfers).
+  const doelpuntenPerNaam = {}, assistsPerNaam = {};
+  wedstrijden.filter(x=>x.status==='gespeeld').forEach(wed=>{
+    (wed.events||[]).forEach(ev=>{
+      if(ev.type!=='doelpunt' || ev.tegen) return;
+      if(ev.speler) doelpuntenPerNaam[ev.speler] = (doelpuntenPerNaam[ev.speler]||0)+1;
+      if(ev.assist && ev.assist!=='geen') assistsPerNaam[ev.assist] = (assistsPerNaam[ev.assist]||0)+1;
+    });
+  });
   const doelpuntenTop5 = [...teamSpelers]
-    .sort((a,b)=>(b.doelpunten||0)-(a.doelpunten||0) || a.naam.localeCompare(b.naam))
-    .slice(0,5).map(sp=>({sp, waarde:(sp.doelpunten||0)}));
+    .map(sp=>({sp, waarde:doelpuntenPerNaam[sp.naam]||0}))
+    .sort((a,b)=>b.waarde-a.waarde || a.sp.naam.localeCompare(b.sp.naam))
+    .slice(0,5);
   const assistsTop5 = [...teamSpelers]
-    .sort((a,b)=>(b.assists||0)-(a.assists||0) || a.naam.localeCompare(b.naam))
-    .slice(0,5).map(sp=>({sp, waarde:(sp.assists||0)}));
+    .map(sp=>({sp, waarde:assistsPerNaam[sp.naam]||0}))
+    .sort((a,b)=>b.waarde-a.waarde || a.sp.naam.localeCompare(b.sp.naam))
+    .slice(0,5);
   const opkomstTop5 = [...teamSpelers]
     .map(sp=>({sp, waarde:getOpkomstSpeler(sp.id).pct}))
     .sort((a,b)=>b.waarde-a.waarde || a.sp.naam.localeCompare(b.sp.naam))
@@ -3733,13 +3749,16 @@ function renderRollen(){
   const rows=gebruikers.map(u=>{
     const rk = ROL_NIVEAU_KLEUREN[u.rol_niveau] || ROL_NIVEAU_KLEUREN.staf_lezen;
     const gekoppeld = !!u.auth_user_id;
+    // Foto komt uit de spelers-tabel (type:'staf'), op naam gematcht -- geen aparte upload
+    // hier nodig, want die staat al bij het Spelers-tabblad.
+    const stafSpeler = spelers.find(s=>s.type==='staf' && s.naam.toLowerCase()===u.naam.toLowerCase());
+    const foto = stafSpeler?.foto || null;
     return `
     <div class="rollen-rij" style="border:1px solid var(--border);border-radius:var(--radius);padding:10px 12px;margin-bottom:8px">
       <div style="display:flex;align-items:center;gap:10px">
-        <div onclick="document.getElementById('staf-foto-${u.id}').click()" title="Klik om foto te wijzigen" style="width:38px;height:38px;border-radius:50%;overflow:hidden;flex-shrink:0;cursor:pointer;background:${rk.bg};color:${rk.c};display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:600">
-          ${u.foto?`<img src="${u.foto}" style="width:100%;height:100%;object-fit:cover">`:(u.init||u.naam.slice(0,2).toUpperCase())}
+        <div style="width:38px;height:38px;border-radius:50%;overflow:hidden;flex-shrink:0;background:${rk.bg};color:${rk.c};display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:600">
+          ${foto?`<img src="${foto}" style="width:100%;height:100%;object-fit:cover">`:(u.init||u.naam.slice(0,2).toUpperCase())}
         </div>
-        <input type="file" id="staf-foto-${u.id}" accept="image/*" style="display:none" onchange="uploadStafFoto(event,${u.id})">
         <div style="flex:1;min-width:0">
           <div style="font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${u.naam}</div>
           <input type="text" value="${u.functie||''}" placeholder="Functie (bv. Assistent trainer)"
@@ -3764,32 +3783,10 @@ function renderRollen(){
   return`<div class="card">
     <div class="card-hdr"><div class="card-title"><div class="gdot"></div>Staf & rollen (${gebruikers.length})</div></div>
     <div style="font-size:12px;color:var(--text-muted);margin-bottom:1rem">
-      Klik op een pasfoto om te wijzigen. Klik op <i class="ti ti-link" style="font-size:12px;vertical-align:-1px"></i> voor een eenmalige koppel-link.
+      Pasfoto\'s beheer je bij het Spelers-tabblad. Klik op <i class="ti ti-link" style="font-size:12px;vertical-align:-1px"></i> voor een eenmalige koppel-link.
     </div>
     ${rows || '<div style="font-size:13px;color:var(--text-light);padding:12px 4px">Nog geen staf-leden</div>'}
   </div>`;
-}
-
-async function uploadStafFoto(e, gebruikerId){
-  const file=e.target.files[0];
-  if(!file) return;
-  const r=new FileReader();
-  r.onload=async ev=>{
-    const gecomprimeerd = await comprimeerAfbeelding(ev.target.result);
-    const { error } = await db.from('gebruikers').update({foto:gecomprimeerd}).eq('id', gebruikerId);
-    if(error){ console.error('Fout bij opslaan staf-foto:', error.message||error, error); showToast('Foto opslaan mislukt: '+(error.message||'controleer verbinding'), 'fout'); return; }
-    const g = gebruikers.find(x=>x.id===gebruikerId);
-    if(g) g.foto = gecomprimeerd;
-    // Als dit de ingelogde gebruiker zelf is: ook de topbar-avatar direct bijwerken
-    if(huidigeGebruiker && huidigeGebruiker.bron==='gebruikers' && huidigeGebruiker.id===gebruikerId){
-      profiel.foto = gecomprimeerd;
-      huidigeGebruiker.foto = gecomprimeerd;
-      syncTopbar();
-    }
-    showToast('Foto bijgewerkt');
-    draw();
-  };
-  r.readAsDataURL(file);
 }
 
 async function toonKoppelUrl(gebruikerId){
