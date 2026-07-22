@@ -1552,7 +1552,7 @@ function draw(){
   else if(page==='dashboard') html+=renderDashboard();
   else if(page==='spelers')   html+=activeSpelerId?renderSpelerDetail():renderSpelers();
   else if(page==='wedstrijden') html+=activeWedstrijdId?renderWedstrijdDetail():renderWedstrijden();
-  else if(page==='statistieken') html+=renderWedstrijdStatistieken();
+  else if(page==='statistieken') html+=activeWedstrijdId?renderWedstrijdDetail():renderWedstrijdStatistieken();
   else if(page==='ontwikkeling') html+=ontwikkelingIngeschakeld?renderOntwikkeling():renderDashboard();
   else if(page==='rollen')    html+=renderRollen();
   else if(page==='trainingen') html+=renderTrainingen();
