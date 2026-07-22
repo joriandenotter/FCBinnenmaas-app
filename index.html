@@ -2240,6 +2240,23 @@ function renderWedstrijdStatistieken(){
       <span style="font-size:13px;font-weight:600;color:${r.pct<70?'#dc2626':'var(--text)'}">${r.pct}% <span style="color:var(--text-muted);font-weight:400">(${r.aanwezig}/${r.totaal})</span></span>
     </div>`).join('');
 
+  // ---- Gespeelde wedstrijden (klikbaar naar het detail, waar bewerken/verwijderen kan) ----
+  const gespeeldRijen = gs.slice().sort((a,b)=>b.datum.localeCompare(a.datum)).map(w=>`
+    <div class="match-row" onclick="activeWedstrijdId=${w.id};wedstrijdTab='opstelling';draw()">
+      <div style="font-size:12px;color:var(--text-muted);margin-bottom:4px">${fmtDate(w.datum)}</div>
+      <div style="font-size:14px;font-weight:600;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <span style="flex:1;min-width:0">FC Binnenmaas 1
+          <span class="score ${scClass(w)}">${w.score?`${w.score.e}-${w.score.t}`:'–'}</span>
+          ${w.teg}
+        </span>
+        <i class="ti ti-chevron-right" style="color:var(--text-muted);flex-shrink:0"></i>
+      </div>
+      <div style="font-size:12px;color:var(--text-muted);margin-top:5px;display:flex;gap:6px;flex-wrap:wrap">
+        <span class="${w.thuis?'badge-thuis':'badge-uit'}">${w.thuis?'Thuis':'Uit'}</span>
+        <span class="type-badge">${w.type}</span>
+      </div>
+    </div>`).join('');
+
   return`
     ${filterBar}
     ${statBoxen}
@@ -2263,6 +2280,10 @@ function renderWedstrijdStatistieken(){
         </div>
         ${opkomstRijen || '<div style="font-size:13px;color:var(--text-light);padding:8px 4px">Nog geen trainingsdata</div>'}
       </div>
+    </div>
+    <div class="card" style="margin-top:1rem">
+      <div class="card-hdr"><div class="card-title"><div class="gdot"></div>Gespeelde wedstrijden (${gs.length})</div></div>
+      ${gespeeldRijen || '<div style="font-size:13px;color:var(--text-light);padding:8px 4px">Nog geen gespeelde wedstrijden</div>'}
     </div>`;
 }
 
@@ -2656,9 +2677,7 @@ function renderWedstrijdDetail(){
   const startKnop = gepland
     ? `<button class="btn-green" onclick="startWedstrijd(${w.id})"><i class="ti ti-player-play" style="font-size:14px"></i> Wedstrijd starten</button>`
     : '';
-  const bewerkKnop = gepland
-    ? `<button class="btn-outline" onclick="openBewerkWedstrijd(${w.id})"><i class="ti ti-pencil" style="font-size:14px"></i> Bewerken</button>`
-    : '';
+  const bewerkKnop = `<button class="btn-outline" onclick="openBewerkWedstrijd(${w.id})"><i class="ti ti-pencil" style="font-size:14px"></i> Bewerken</button>`;
   const deelKnop = `<button class="btn-outline" onclick="deelLiveLink(${w.id})"><i class="ti ti-share" style="font-size:14px"></i> Live delen</button>`;
   const verwijderKnop = `<button class="btn-outline" style="border-color:#fca5a5;color:#dc2626" onclick="vraagVerwijderWedstrijdBevestiging(${w.id})"><i class="ti ti-trash" style="font-size:14px"></i></button>`;
 
