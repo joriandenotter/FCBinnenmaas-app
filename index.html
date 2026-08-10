@@ -587,6 +587,26 @@ async function slaNieuwWachtwoordOp(){
   setTimeout(()=>{ window.location.href = '/'; }, 1200);
 }
 
+// Wachtwoord wijzigen vanuit het gewone profielscherm, terwijl je al bent ingelogd
+// (bv. via een magic link, of gewoon omdat je 'm periodiek wilt wijzigen).
+async function wijzigEigenWachtwoord(){
+  const wachtwoord = document.getElementById('profielWachtwoordInput')?.value;
+  const wachtwoord2 = document.getElementById('profielWachtwoordInput2')?.value;
+  const meldingEl = document.getElementById('profiel-wachtwoord-melding');
+  function toonFout(msg){ if(meldingEl) meldingEl.innerHTML = `<div style="background:#fef2f2;border:1px solid #fca5a5;color:#991b1b;border-radius:var(--radius);padding:10px 12px;margin-bottom:1rem;font-size:13px">${msg}</div>`; }
+
+  if(!wachtwoord||!wachtwoord2){ toonFout('Vul beide velden in'); return; }
+  if(wachtwoord.length<8){ toonFout('Wachtwoord moet minimaal 8 tekens zijn'); return; }
+  if(wachtwoord!==wachtwoord2){ toonFout('Wachtwoorden komen niet overeen'); return; }
+
+  const { error } = await db.auth.updateUser({ password: wachtwoord });
+  if(error){ toonFout('Wachtwoord wijzigen mislukt: '+error.message); return; }
+
+  if(meldingEl) meldingEl.innerHTML = `<div style="background:var(--fcb-groen-licht);border:1px solid #b8e0bb;color:#1B5E20;border-radius:var(--radius);padding:10px 12px;margin-bottom:1rem;font-size:13px">Wachtwoord bijgewerkt!</div>`;
+  const v1=document.getElementById('profielWachtwoordInput'), v2=document.getElementById('profielWachtwoordInput2');
+  if(v1) v1.value=''; if(v2) v2.value='';
+}
+
 // ============================================================
 // DATA
 // ============================================================
@@ -3902,6 +3922,14 @@ function renderBeheer(){
     <div class="field-box"><label class="field-label">Naam</label><input class="field-input" type="text" id="profielNaamInput" value="${profiel.naam}"></div>
     <div class="field-box"><label class="field-label">Rol</label><input class="field-input" type="text" id="profielRolInput" value="${profiel.rol}"></div>
     <div style="display:flex;justify-content:flex-end;margin-top:1rem"><button class="btn-green" onclick="slaProfielOp()"><i class="ti ti-check" style="font-size:13px"></i> Opslaan</button></div>
+    <hr class="divider">
+    <div style="font-size:13px;font-weight:600;margin-bottom:.75rem">Wachtwoord wijzigen</div>
+    <div id="profiel-wachtwoord-melding"></div>
+    <div class="field-box"><label class="field-label">Nieuw wachtwoord (minimaal 8 tekens)</label><input class="field-input" type="password" id="profielWachtwoordInput" placeholder="••••••••" autocomplete="new-password"></div>
+    <div class="field-box"><label class="field-label">Herhaal wachtwoord</label><input class="field-input" type="password" id="profielWachtwoordInput2" placeholder="••••••••" autocomplete="new-password"></div>
+    <div style="display:flex;justify-content:flex-end;margin-top:.5rem"><button class="btn-outline" onclick="wijzigEigenWachtwoord()"><i class="ti ti-key" style="font-size:13px"></i> Wachtwoord instellen</button></div>
+    <hr class="divider">
+    <button class="btn-outline" style="width:100%;justify-content:center;color:#dc2626;border-color:#fca5a5" onclick="logUit()"><i class="ti ti-logout" style="font-size:13px"></i> Uitloggen</button>
   `:beheerTab==='info'?`
     <div class="field-box"><label class="field-label">Clubnaam</label><input class="field-input" type="text" id="clubNaamInput" value="${clubNaam}"></div>
     <div class="field-box"><label class="field-label">Actief seizoen</label><input class="field-input" type="text" value="${activeSeizoen()?.naam||'—'}" disabled style="opacity:.6;cursor:not-allowed"></div>
