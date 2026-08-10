@@ -540,7 +540,7 @@ async function stuurWachtwoordReset(){
   }
   const { error } = await db.auth.resetPasswordForEmail(email, { redirectTo: window.location.origin });
   if(error){
-    if(meldingEl) meldingEl.innerHTML = `<div style="background:#fef2f2;border:1px solid #fca5a5;color:#991b1b;border-radius:var(--radius);padding:10px 12px;margin-bottom:1rem;font-size:13px">Versturen mislukt: ${error.message}</div>`;
+    if(meldingEl) meldingEl.innerHTML = `<div style="background:#fef2f2;border:1px solid #fca5a5;color:#991b1b;border-radius:var(--radius);padding:10px 12px;margin-bottom:1rem;font-size:13px">Versturen mislukt: ${vertaalFoutmelding(error)}</div>`;
     return;
   }
   if(meldingEl) meldingEl.innerHTML = `<div style="background:var(--fcb-groen-licht);border:1px solid #b8e0bb;color:#1B5E20;border-radius:var(--radius);padding:10px 12px;margin-bottom:1rem;font-size:13px">Als dit e-mailadres bekend is, is er een e-mail verstuurd met een link om je wachtwoord opnieuw in te stellen.</div>`;
@@ -581,7 +581,7 @@ async function slaNieuwWachtwoordOp(){
   if(wachtwoord!==wachtwoord2){ toonFout('Wachtwoorden komen niet overeen'); return; }
 
   const { error } = await db.auth.updateUser({ password: wachtwoord });
-  if(error){ toonFout('Wachtwoord instellen mislukt: '+error.message); return; }
+  if(error){ toonFout('Wachtwoord instellen mislukt: '+vertaalFoutmelding(error)); return; }
 
   if(meldingEl) meldingEl.innerHTML = `<div style="background:var(--fcb-groen-licht);border:1px solid #b8e0bb;color:#1B5E20;border-radius:var(--radius);padding:10px 12px;margin-bottom:1rem;font-size:13px">Wachtwoord ingesteld! Je wordt ingelogd…</div>`;
   setTimeout(()=>{ window.location.href = '/'; }, 1200);
@@ -600,7 +600,7 @@ async function wijzigEigenWachtwoord(){
   if(wachtwoord!==wachtwoord2){ toonFout('Wachtwoorden komen niet overeen'); return; }
 
   const { error } = await db.auth.updateUser({ password: wachtwoord });
-  if(error){ toonFout('Wachtwoord wijzigen mislukt: '+error.message); return; }
+  if(error){ toonFout('Wachtwoord wijzigen mislukt: '+vertaalFoutmelding(error)); return; }
 
   if(meldingEl) meldingEl.innerHTML = `<div style="background:var(--fcb-groen-licht);border:1px solid #b8e0bb;color:#1B5E20;border-radius:var(--radius);padding:10px 12px;margin-bottom:1rem;font-size:13px">Wachtwoord bijgewerkt!</div>`;
   const v1=document.getElementById('profielWachtwoordInput'), v2=document.getElementById('profielWachtwoordInput2');
@@ -691,7 +691,7 @@ let spelerSeizoenen = []; // ruwe koppelingen speler<->seizoen, zoals opgehaald 
 
 async function laadSpelersUitDatabase(){
   const { data, error } = await db.from('spelers').select('*').order('id');
-  if(error){ console.error('Fout bij laden spelers:', error.message||error, error); showToast('Kon spelers niet laden: '+(error.message||'onbekende fout'), 'fout'); return false; }
+  if(error){ console.error('Fout bij laden spelers:', error.message||error, error); showToast('Kon spelers niet laden: '+vertaalFoutmelding(error), 'fout'); return false; }
   const dbWasLeeg = !data || data.length===0;
   if(!dbWasLeeg){
     spelers = data.map(rijNaarSpeler);
@@ -707,7 +707,8 @@ async function syncSpelerNaarDatabase(sp){
   const rij = spelerNaarRij(sp);
   sp.publicCode = rij.public_code; // onthoud de (mogelijk net gegenereerde) code, ook lokaal
   const { error } = await db.from('spelers').upsert(rij);
-  if(error){ console.error('Fout bij opslaan speler:', error.message||error, error); showToast('Opslaan mislukt: '+(error.message||'controleer verbinding'), 'fout'); }
+  if(error){ console.error('Fout bij opslaan speler:', error.message||error, error); showToast('Opslaan mislukt: '+vertaalFoutmelding(error), 'fout'); return false; }
+  return true;
 }
 
 async function laadSpelerSeizoenenUitDatabase(){
@@ -722,7 +723,7 @@ async function laadSpelerSeizoenenUitDatabase(){
 async function syncSpelerSeizoenNaarDatabase(sp){
   const rij = spelerSeizoenNaarRij(sp);
   const { data, error } = await db.from('speler_seizoenen').upsert(rij, {onConflict:'speler_id,seizoen_id'}).select().maybeSingle();
-  if(error){ console.error('Fout bij opslaan speler-seizoen:', error.message||error, error); showToast('Opslaan mislukt: '+(error.message||'controleer verbinding'), 'fout'); return; }
+  if(error){ console.error('Fout bij opslaan speler-seizoen:', error.message||error, error); showToast('Opslaan mislukt: '+vertaalFoutmelding(error), 'fout'); return; }
   if(data) sp.speelSeizoenKoppelingId = data.id; // onthoud het echte id, ook als dit een nieuwe koppeling was
 }
 
@@ -737,7 +738,7 @@ function rijNaarSeizoen(r){
 }
 async function laadSeizoenenUitDatabase(){
   const { data, error } = await db.from('seizoenen').select('*').order('id');
-  if(error){ console.error('Fout bij laden seizoenen:', error.message||error, error); showToast('Kon seizoenen niet laden: '+(error.message||'onbekende fout'), 'fout'); return; }
+  if(error){ console.error('Fout bij laden seizoenen:', error.message||error, error); showToast('Kon seizoenen niet laden: '+vertaalFoutmelding(error), 'fout'); return; }
   if(data && data.length){
     seizoenen = data.map(rijNaarSeizoen);
     nextSeizoenId = Math.max(...seizoenen.map(s=>s.id), 0) + 1;
@@ -747,7 +748,7 @@ async function laadSeizoenenUitDatabase(){
 }
 async function syncSeizoenNaarDatabase(s){
   const { error } = await db.from('seizoenen').upsert(seizoenNaarRij(s));
-  if(error){ console.error('Fout bij opslaan seizoen:', error.message||error, error); showToast('Opslaan seizoen mislukt: '+(error.message||'controleer verbinding'), 'fout'); }
+  if(error){ console.error('Fout bij opslaan seizoen:', error.message||error, error); showToast('Opslaan seizoen mislukt: '+vertaalFoutmelding(error), 'fout'); }
 }
 async function verwijderSeizoenUitDatabase(id){
   const { error } = await db.from('seizoenen').delete().eq('id', id);
@@ -812,7 +813,7 @@ async function laadWedstrijdenVoorSeizoen(seizoenId){
   let query = db.from('wedstrijden').select('*').order('id');
   if(seizoenId) query = query.eq('seizoen_id', seizoenId);
   const { data, error } = await query;
-  if(error){ console.error('Fout bij laden wedstrijden:', error.message||error, error); showToast('Kon wedstrijden niet laden: '+(error.message||'onbekende fout'), 'fout'); return; }
+  if(error){ console.error('Fout bij laden wedstrijden:', error.message||error, error); showToast('Kon wedstrijden niet laden: '+vertaalFoutmelding(error), 'fout'); return; }
   wedstrijden = (data||[]).map(rijNaarWedstrijd);
   nextWedstrijdId = Math.max(...wedstrijden.map(w=>w.id), 0) + 1;
   draw();
@@ -840,7 +841,7 @@ function syncWedstrijdNaarDatabase(w){
     });
     if(!rijen.length) return;
     const { error } = await db.from('wedstrijden').upsert(rijen);
-    if(error){ console.error('Fout bij opslaan wedstrijd:', error.message||error, error); showToast('Opslaan wedstrijd mislukt: '+(error.message||'controleer verbinding'), 'fout'); }
+    if(error){ console.error('Fout bij opslaan wedstrijd:', error.message||error, error); showToast('Opslaan wedstrijd mislukt: '+vertaalFoutmelding(error), 'fout'); }
   }, 400);
 }
 
@@ -865,7 +866,7 @@ async function laadTegenstandersUitDatabase(){
 // ============================================================
 async function laadGebruikersUitDatabase(){
   const { data, error } = await db.from('gebruikers').select('*').order('naam');
-  if(error){ console.error('Fout bij laden gebruikers:', error.message||error, error); showToast('Kon gebruikers niet laden: '+(error.message||'onbekende fout'), 'fout'); return; }
+  if(error){ console.error('Fout bij laden gebruikers:', error.message||error, error); showToast('Kon gebruikers niet laden: '+vertaalFoutmelding(error), 'fout'); return; }
   gebruikers = data||[];
 }
 
@@ -876,7 +877,7 @@ let ontwikkelscores = {}; // {spelerId: {subId: score}}
 
 async function laadOntwikkelscoresUitDatabase(){
   const { data, error } = await db.from('ontwikkelscores').select('*');
-  if(error){ console.error('Fout bij laden ontwikkelscores:', error.message||error, error); showToast('Kon ontwikkelscores niet laden: '+(error.message||'onbekende fout'), 'fout'); return; }
+  if(error){ console.error('Fout bij laden ontwikkelscores:', error.message||error, error); showToast('Kon ontwikkelscores niet laden: '+vertaalFoutmelding(error), 'fout'); return; }
   ontwikkelscores = {};
   (data||[]).forEach(r=>{
     if(!ontwikkelscores[r.speler_id]) ontwikkelscores[r.speler_id] = {};
@@ -893,7 +894,7 @@ async function zetOntwikkelscore(spelerId, subId, nieuweScore){
   if(!magBewerken()){ showToast('Alleen Staf – bewerken of Staf – admin mag ontwikkelscores wijzigen', 'fout'); return; }
   nieuweScore = Math.max(0, Math.min(100, Math.round(nieuweScore/5)*5)); // altijd afronden op veelvoud van 5, binnen 0-100
   const { error } = await db.from('ontwikkelscores').upsert({speler_id:spelerId, sub_id:subId, score:nieuweScore}, {onConflict:'speler_id,sub_id'});
-  if(error){ console.error('Fout bij opslaan ontwikkelscore:', error.message||error, error); showToast('Opslaan mislukt: '+(error.message||'controleer verbinding'), 'fout'); return; }
+  if(error){ console.error('Fout bij opslaan ontwikkelscore:', error.message||error, error); showToast('Opslaan mislukt: '+vertaalFoutmelding(error), 'fout'); return; }
   if(!ontwikkelscores[spelerId]) ontwikkelscores[spelerId] = {};
   ontwikkelscores[spelerId][subId] = nieuweScore;
   draw();
@@ -902,7 +903,7 @@ async function zetOntwikkelscore(spelerId, subId, nieuweScore){
 async function wijzigRolNiveau(gebruikerId, nieuwRolNiveau){
   if(!isAdmin()){ showToast('Alleen een admin mag rollen wijzigen', 'fout'); return; }
   const { error } = await db.from('gebruikers').update({rol_niveau:nieuwRolNiveau}).eq('id', gebruikerId);
-  if(error){ console.error('Fout bij wijzigen rol:', error.message||error, error); showToast('Rol wijzigen mislukt: '+(error.message||'controleer verbinding'), 'fout'); return; }
+  if(error){ console.error('Fout bij wijzigen rol:', error.message||error, error); showToast('Rol wijzigen mislukt: '+vertaalFoutmelding(error), 'fout'); return; }
   const g = gebruikers.find(x=>x.id===gebruikerId);
   if(g) g.rol_niveau = nieuwRolNiveau;
   showToast('Rol bijgewerkt');
@@ -911,7 +912,7 @@ async function wijzigRolNiveau(gebruikerId, nieuwRolNiveau){
 
 async function wijzigFunctieTitel(gebruikerId, nieuweFunctie){
   const { error } = await db.from('gebruikers').update({functie:nieuweFunctie}).eq('id', gebruikerId);
-  if(error){ console.error('Fout bij wijzigen functie:', error.message||error, error); showToast('Functie wijzigen mislukt: '+(error.message||'controleer verbinding'), 'fout'); return; }
+  if(error){ console.error('Fout bij wijzigen functie:', error.message||error, error); showToast('Functie wijzigen mislukt: '+vertaalFoutmelding(error), 'fout'); return; }
   const g = gebruikers.find(x=>x.id===gebruikerId);
   if(g) g.functie = nieuweFunctie;
   // Als dit de ingelogde gebruiker zelf is: ook de topbar-weergave direct bijwerken
@@ -928,7 +929,7 @@ async function genereerKoppelUrl(gebruikerId){
   if(!isAdmin()){ showToast('Alleen een admin mag koppel-links genereren', 'fout'); return null; }
   const code = genereerPublicCode();
   const { error } = await db.from('gebruikers').update({koppel_code:code, koppel_code_gebruikt:false, auth_user_id:null}).eq('id', gebruikerId);
-  if(error){ console.error('Fout bij genereren koppel-link:', error.message||error, error); showToast('Koppel-link genereren mislukt: '+(error.message||'onbekende fout'), 'fout'); return null; }
+  if(error){ console.error('Fout bij genereren koppel-link:', error.message||error, error); showToast('Koppel-link genereren mislukt: '+vertaalFoutmelding(error), 'fout'); return null; }
   const g = gebruikers.find(x=>x.id===gebruikerId);
   if(g){ g.koppel_code=code; g.koppel_code_gebruikt=false; g.auth_user_id=null; }
   return `${window.location.origin}/koppel-account/${code}`;
@@ -946,7 +947,7 @@ async function slaTegenstanderOp(naam, logo){
     return bestaand;
   }
   const { data, error } = await db.from('tegenstanders').insert({naam, logo:logo||null}).select().maybeSingle();
-  if(error){ console.error('Fout bij aanmaken tegenstander:', error.message||error, error); showToast('Tegenstander opslaan mislukt: '+(error.message||'controleer verbinding'), 'fout'); return null; }
+  if(error){ console.error('Fout bij aanmaken tegenstander:', error.message||error, error); showToast('Tegenstander opslaan mislukt: '+vertaalFoutmelding(error), 'fout'); return null; }
   if(data) tegenstanders.push(data);
   return data;
 }
@@ -994,7 +995,7 @@ async function laadTrainingenVoorSeizoen(seizoenId){
   let query = db.from('trainingen').select('*').order('datum');
   if(seizoenId) query = query.eq('seizoen_id', seizoenId);
   const { data, error } = await query;
-  if(error){ console.error('Fout bij laden trainingen:', error.message||error, error); showToast('Kon trainingen niet laden: '+(error.message||'onbekende fout'), 'fout'); return; }
+  if(error){ console.error('Fout bij laden trainingen:', error.message||error, error); showToast('Kon trainingen niet laden: '+vertaalFoutmelding(error), 'fout'); return; }
   trainingen = (data||[]).map(rijNaarTraining);
   nextTrainingId = Math.max(...trainingen.map(t=>t.id), 0) + 1;
   await laadOefeningenVoorTrainingen(trainingen.map(t=>t.id));
@@ -1008,7 +1009,7 @@ async function laadOefeningenVoorTrainingen(trainingIds){
   oefeningen = {};
   if(!trainingIds.length) return;
   const { data, error } = await db.from('oefeningen').select('*').in('training_id', trainingIds).order('volgorde');
-  if(error){ console.error('Fout bij laden oefeningen:', error.message||error, error); showToast('Kon oefeningen niet laden: '+(error.message||'onbekende fout'), 'fout'); return; }
+  if(error){ console.error('Fout bij laden oefeningen:', error.message||error, error); showToast('Kon oefeningen niet laden: '+vertaalFoutmelding(error), 'fout'); return; }
   (data||[]).forEach(r=>{
     if(!oefeningen[r.training_id]) oefeningen[r.training_id] = [];
     oefeningen[r.training_id].push(rijNaarOefening(r));
@@ -1021,7 +1022,7 @@ async function syncTrainingNaarDatabase(t){
   const rij = trainingNaarRij(t);
   t.publicCode = rij.public_code; // onthoud de (mogelijk net gegenereerde) code, ook lokaal
   const { error } = await db.from('trainingen').upsert(rij);
-  if(error){ console.error('Fout bij opslaan training:', error.message||error, error); showToast('Opslaan training mislukt: '+(error.message||'controleer verbinding'), 'fout'); }
+  if(error){ console.error('Fout bij opslaan training:', error.message||error, error); showToast('Opslaan training mislukt: '+vertaalFoutmelding(error), 'fout'); }
 }
 async function verwijderTrainingUitDatabase(id){
   const { error } = await db.from('trainingen').delete().eq('id', id);
@@ -1036,11 +1037,11 @@ async function syncOefeningNaarDatabase(oef, trainingId){
   const rij = oefeningNaarRij(oef, trainingId, volgorde);
   if(isNieuw){
     const { data, error } = await db.from('oefeningen').insert(rij).select().maybeSingle();
-    if(error){ console.error('Fout bij aanmaken oefening:', error.message||error, error); showToast('Opslaan oefening mislukt: '+(error.message||'controleer verbinding'), 'fout'); return; }
+    if(error){ console.error('Fout bij aanmaken oefening:', error.message||error, error); showToast('Opslaan oefening mislukt: '+vertaalFoutmelding(error), 'fout'); return; }
     if(data){ oef.dbId = data.id; }
   } else {
     const { error } = await db.from('oefeningen').update(rij).eq('id', oef.dbId);
-    if(error){ console.error('Fout bij bijwerken oefening:', error.message||error, error); showToast('Opslaan oefening mislukt: '+(error.message||'controleer verbinding'), 'fout'); }
+    if(error){ console.error('Fout bij bijwerken oefening:', error.message||error, error); showToast('Opslaan oefening mislukt: '+vertaalFoutmelding(error), 'fout'); }
   }
 }
 async function verwijderOefeningUitDatabase(oef){
@@ -1071,7 +1072,7 @@ async function laadInstellingenUitDatabase(){
 
 async function syncInstellingenNaarDatabase(){
   const { error } = await db.from('instellingen').update({ club_naam: clubNaam, club_logo: clubLogo, ontwikkeling_ingeschakeld: ontwikkelingIngeschakeld }).eq('id',1);
-  if(error){ console.error('Fout bij opslaan instellingen:', error.message||error, error); showToast('Opslaan mislukt: '+(error.message||'controleer verbinding'), 'fout'); }
+  if(error){ console.error('Fout bij opslaan instellingen:', error.message||error, error); showToast('Opslaan mislukt: '+vertaalFoutmelding(error), 'fout'); }
 }
 
 function toggleOntwikkeling(){
@@ -1212,8 +1213,29 @@ function spelersInActiefSeizoen(){ return spelers.filter(s=>s.doetMeeDitSeizoen)
 function showToast(msg, type){
   toast={msg, type:type||'succes'};
   draw();
-  const duur = (type==='fout') ? 6000 : 3000;
-  setTimeout(()=>{ toast=null; draw(); }, duur);
+  // Foutmeldingen blijven staan totdat de gebruiker ze wegklikt, of totdat er een nieuwe
+  // (succes)melding komt -- dan is er tijd genoeg om de vaak wat technische foutmelding te lezen.
+  if(type!=='fout'){
+    setTimeout(()=>{ toast=null; draw(); }, 3000);
+  }
+}
+function sluitToast(){ toast=null; draw(); }
+
+// Vertaalt veelvoorkomende, technische Supabase/Postgres-foutmeldingen naar begrijpelijke taal.
+// Onbekende foutmeldingen worden gewoon doorgegeven (beter een technische melding dan niets).
+function vertaalFoutmelding(error){
+  const msg = (error && error.message) ? error.message : String(error||'');
+  const laag = msg.toLowerCase();
+  if(laag.includes('foreign key constraint')) return 'Deze actie kon niet worden voltooid omdat gekoppelde gegevens nog niet klaar waren. Probeer het nog eens.';
+  if(laag.includes('duplicate key') || laag.includes('already exists')) return 'Dit bestaat al en kan niet nogmaals worden toegevoegd.';
+  if(laag.includes('row-level security') || laag.includes('permission denied')) return 'Je hebt geen toestemming om dit te doen. Neem contact op met de beheerder als je denkt dat dit niet klopt.';
+  if(laag.includes('network') || laag.includes('failed to fetch')) return 'Geen verbinding met de server. Controleer je internetverbinding en probeer het opnieuw.';
+  if(laag.includes('rate limit')) return 'Je hebt dit te vaak achter elkaar geprobeerd. Wacht even en probeer het daarna opnieuw.';
+  if(laag.includes('invalid login credentials')) return 'E-mailadres of wachtwoord klopt niet.';
+  if(laag.includes('email not confirmed')) return 'Bevestig eerst je e-mailadres via de link die je per mail hebt ontvangen.';
+  if(laag.includes('already registered')) return 'Dit e-mailadres heeft al een account.';
+  if(!msg) return 'Er ging iets mis. Probeer het opnieuw.';
+  return msg; // geen bekende vertaling: toon de originele melding, dat is nuttiger dan niets
 }
 
 // Klok
@@ -1448,7 +1470,7 @@ async function voltooiKoppeling(){
     if(signUpError.message && signUpError.message.toLowerCase().includes('already registered')){
       toonFout('Dit e-mailadres heeft al een account. Gebruik een ander e-mailadres, of neem contact op met de beheerder om je bestaande account te laten koppelen.');
     } else {
-      toonFout('Account aanmaken mislukt: '+signUpError.message);
+      toonFout('Account aanmaken mislukt: '+vertaalFoutmelding(signUpError));
     }
     return;
   }
@@ -1678,7 +1700,7 @@ function draw(){
   let html='';
   if(toast){
     const isFout = toast.type==='fout';
-    html+=`<div class="toast${isFout?' toast-fout':''}"><i class="ti ${isFout?'ti-alert-circle':'ti-circle-check'}" style="font-size:16px"></i>${toast.msg}</div>`;
+    html+=`<div class="toast${isFout?' toast-fout':''}"><i class="ti ${isFout?'ti-alert-circle':'ti-circle-check'}" style="font-size:16px;flex-shrink:0"></i><span style="flex:1">${toast.msg}</span>${isFout?`<button onclick="sluitToast()" style="background:none;border:none;cursor:pointer;color:inherit;opacity:.6;padding:0;flex-shrink:0"><i class="ti ti-x" style="font-size:15px"></i></button>`:''}</div>`;
   }
   if(isArchiefModus()){
     const bekekenSeizoen=seizoenen.find(s=>s.id===bekijkSeizoenId);
@@ -1997,7 +2019,7 @@ function renderNieuweSpelerForm(){
   </div>`;
 }
 
-function slaaNieuweSpelerOp(){
+async function slaaNieuweSpelerOp(){
   if(blokkeerInArchief()) return;
   const naam=document.getElementById('ns-naam')?.value.trim();
   const pos=document.getElementById('ns-pos')?.value||'';
@@ -2014,8 +2036,16 @@ function slaaNieuweSpelerOp(){
     speelSeizoenId:activeSeizoenId(), speelSeizoenKoppelingId:null
   };
   spelers.push(nieuw);
-  syncSpelerNaarDatabase(nieuw);
-  syncSpelerSeizoenNaarDatabase(nieuw);
+  // Belangrijk: eerst wachten tot de speler zelf bestaat in de database, pas DAARNA de
+  // seizoen-koppeling aanmaken -- die verwijst met een foreign key naar de speler, dus
+  // gelijktijdig versturen kan een 'foreign key constraint'-fout geven.
+  const gelukt = await syncSpelerNaarDatabase(nieuw);
+  if(!gelukt){
+    spelers = spelers.filter(s=>s!==nieuw); // lokaal ook weer terugdraaien, want de opslag is mislukt
+    draw();
+    return;
+  }
+  await syncSpelerSeizoenNaarDatabase(nieuw);
   toonNieuweSpeler=false;
   nieuweSpeler={naam:'',nr:'',pos:'',altPos:'',voet:'Rechts',type:'team'};
   showToast(`${naam} toegevoegd!`);
@@ -2542,7 +2572,7 @@ async function uploadGekozenTegenstanderLogo(e, prefix){
     if(gekozen.id){
       // Bestaand tegenstander-record: meteen in de database bijwerken
       const { error } = await db.from('tegenstanders').update({logo:gecomprimeerd}).eq('id', gekozen.id);
-      if(error){ console.error('Fout bij opslaan tegenstander-logo:', error.message||error, error); showToast('Logo opslaan mislukt: '+(error.message||'controleer verbinding'), 'fout'); }
+      if(error){ console.error('Fout bij opslaan tegenstander-logo:', error.message||error, error); showToast('Logo opslaan mislukt: '+vertaalFoutmelding(error), 'fout'); }
     }
     // Zonder eigen id (fallback-object van een oudere wedstrijd zonder koppeling): het logo wordt
     // pas echt opgeslagen zodra de wedstrijd zelf wordt opgeslagen (via bepaalTegenstanderVoorOpslaan).
@@ -2631,7 +2661,7 @@ async function uploadTegenstanderLogoBeheer(e, tegenstanderId){
   r.onload=async ev=>{
     const gecomprimeerd = await comprimeerAfbeelding(ev.target.result, 200);
     const { error } = await db.from('tegenstanders').update({logo:gecomprimeerd}).eq('id', tegenstanderId);
-    if(error){ console.error('Fout bij opslaan tegenstander-logo:', error.message||error, error); showToast('Logo opslaan mislukt: '+(error.message||'controleer verbinding'), 'fout'); return; }
+    if(error){ console.error('Fout bij opslaan tegenstander-logo:', error.message||error, error); showToast('Logo opslaan mislukt: '+vertaalFoutmelding(error), 'fout'); return; }
     const t = tegenstanders.find(x=>x.id===tegenstanderId);
     if(t) t.logo = gecomprimeerd;
     showToast('Logo bijgewerkt');
@@ -2703,7 +2733,7 @@ async function bevestigVerwijderWedstrijd(wedstrijdId){
   const { error } = await db.from('wedstrijden').delete().eq('id', wedstrijdId);
   if(error){
     console.error('Fout bij verwijderen wedstrijd:', error.message||error, error);
-    showToast('Verwijderen mislukt: '+(error.message||'controleer je rechten'), 'fout');
+    showToast('Verwijderen mislukt: '+vertaalFoutmelding(error), 'fout');
     return; // de lokale lijst NIET bijwerken, want de database-verwijdering is niet gelukt
   }
   wedstrijden = wedstrijden.filter(x=>x.id!==wedstrijdId);
@@ -4098,7 +4128,7 @@ async function bevestigSpelerskeuzeVoorSeizoen(){
   const teVerwijderen = bestaandeKoppelingen.filter(ss=>!gekozenIds.has(ss.speler_id));
   for(const ss of teVerwijderen){
     const { error } = await db.from('speler_seizoenen').delete().eq('id', ss.id);
-    if(error){ console.error('Fout bij verwijderen speler-seizoen koppeling:', error.message||error, error); showToast('Verwijderen mislukt: '+(error.message||'controleer verbinding'), 'fout'); return; }
+    if(error){ console.error('Fout bij verwijderen speler-seizoen koppeling:', error.message||error, error); showToast('Verwijderen mislukt: '+vertaalFoutmelding(error), 'fout'); return; }
   }
   spelerSeizoenen = spelerSeizoenen.filter(ss=>!teVerwijderen.includes(ss));
 
@@ -4115,7 +4145,7 @@ async function bevestigSpelerskeuzeVoorSeizoen(){
       };
     });
     const { data, error } = await db.from('speler_seizoenen').insert(rijen).select();
-    if(error){ console.error('Fout bij aanmaken speler-seizoen koppelingen:', error.message||error, error); showToast('Opslaan mislukt: '+(error.message||'controleer verbinding'), 'fout'); return; }
+    if(error){ console.error('Fout bij aanmaken speler-seizoen koppelingen:', error.message||error, error); showToast('Opslaan mislukt: '+vertaalFoutmelding(error), 'fout'); return; }
     spelerSeizoenen.push(...(data||[]));
   }
 
@@ -4187,7 +4217,7 @@ async function bevestigVerwijderSeizoen(){
   const { error } = await db.from('seizoenen').delete().eq('id', id);
   if(error){
     console.error('Fout bij verwijderen seizoen:', error.message||error, error);
-    showToast('Verwijderen mislukt: '+(error.message||'controleer je rechten'), 'fout');
+    showToast('Verwijderen mislukt: '+vertaalFoutmelding(error), 'fout');
     return; // de lokale lijst NIET bijwerken, want de database-verwijdering is niet gelukt
   }
   seizoenen.splice(seizoenen.indexOf(s),1);
