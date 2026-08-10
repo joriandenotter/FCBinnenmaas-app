@@ -468,14 +468,17 @@ function renderLoginScherm(foutmelding){
         <div style="font-size:13px;color:var(--text-muted)">Log in om verder te gaan</div>
       </div>
       <div class="card">
-        ${foutmelding?`<div style="background:#fef2f2;border:1px solid #fca5a5;color:#991b1b;border-radius:var(--radius);padding:10px 12px;margin-bottom:1rem;font-size:13px">${foutmelding}</div>`:''}
+        <div id="login-melding">${foutmelding?`<div style="background:#fef2f2;border:1px solid #fca5a5;color:#991b1b;border-radius:var(--radius);padding:10px 12px;margin-bottom:1rem;font-size:13px">${foutmelding}</div>`:''}</div>
         <div style="margin-bottom:.75rem">
           <label class="field-label">E-mailadres</label>
           <input type="email" id="login-email" class="field-input" placeholder="naam@voorbeeld.nl" autocomplete="username">
         </div>
-        <div style="margin-bottom:1rem">
+        <div style="margin-bottom:.5rem">
           <label class="field-label">Wachtwoord</label>
           <input type="password" id="login-wachtwoord" class="field-input" placeholder="••••••••" autocomplete="current-password" onkeydown="if(event.key==='Enter')probeerInloggen()">
+        </div>
+        <div style="text-align:right;margin-bottom:1rem">
+          <button type="button" onclick="stuurWachtwoordReset()" style="background:none;border:none;cursor:pointer;color:var(--fcb-groen);font-size:12px;font-family:inherit;text-decoration:underline;padding:0">Wachtwoord vergeten?</button>
         </div>
         <button class="btn-green" style="width:100%;justify-content:center" onclick="probeerInloggen()"><i class="ti ti-login" style="font-size:14px"></i> Inloggen</button>
       </div>
@@ -498,6 +501,62 @@ async function probeerInloggen(){
 }
 function toonLoginFout(msg){
   document.getElementById('pageContent').innerHTML = renderLoginScherm(msg);
+}
+
+async function stuurWachtwoordReset(){
+  const email = document.getElementById('login-email')?.value.trim();
+  const meldingEl = document.getElementById('login-melding');
+  if(!email){
+    if(meldingEl) meldingEl.innerHTML = `<div style="background:#fef2f2;border:1px solid #fca5a5;color:#991b1b;border-radius:var(--radius);padding:10px 12px;margin-bottom:1rem;font-size:13px">Vul eerst je e-mailadres in, dan sturen we een reset-link.</div>`;
+    return;
+  }
+  const { error } = await db.auth.resetPasswordForEmail(email, { redirectTo: window.location.origin });
+  if(error){
+    if(meldingEl) meldingEl.innerHTML = `<div style="background:#fef2f2;border:1px solid #fca5a5;color:#991b1b;border-radius:var(--radius);padding:10px 12px;margin-bottom:1rem;font-size:13px">Versturen mislukt: ${error.message}</div>`;
+    return;
+  }
+  if(meldingEl) meldingEl.innerHTML = `<div style="background:var(--fcb-groen-licht);border:1px solid #b8e0bb;color:#1B5E20;border-radius:var(--radius);padding:10px 12px;margin-bottom:1rem;font-size:13px">Als dit e-mailadres bekend is, is er een e-mail verstuurd met een link om je wachtwoord opnieuw in te stellen.</div>`;
+}
+
+// ---- Nieuw wachtwoord instellen (na klikken op de reset-link uit de e-mail) ----
+function renderNieuwWachtwoordScherm(){
+  return `<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;padding:1.5rem;background:var(--bg)">
+    <div style="width:100%;max-width:380px">
+      <div style="text-align:center;margin-bottom:1.5rem">
+        <i class="ti ti-ball-football" style="font-size:32px;color:var(--fcb-groen)"></i>
+        <div style="font-size:18px;font-weight:700;margin-top:6px">Nieuw wachtwoord instellen</div>
+      </div>
+      <div class="card">
+        <div id="reset-melding"></div>
+        <div style="margin-bottom:.75rem">
+          <label class="field-label">Nieuw wachtwoord (minimaal 8 tekens)</label>
+          <input type="password" id="reset-wachtwoord" class="field-input" placeholder="••••••••" autocomplete="new-password">
+        </div>
+        <div style="margin-bottom:1rem">
+          <label class="field-label">Herhaal wachtwoord</label>
+          <input type="password" id="reset-wachtwoord2" class="field-input" placeholder="••••••••" autocomplete="new-password" onkeydown="if(event.key==='Enter')slaNieuwWachtwoordOp()">
+        </div>
+        <button class="btn-green" style="width:100%;justify-content:center" onclick="slaNieuwWachtwoordOp()"><i class="ti ti-check" style="font-size:14px"></i> Wachtwoord instellen</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+async function slaNieuwWachtwoordOp(){
+  const wachtwoord = document.getElementById('reset-wachtwoord')?.value;
+  const wachtwoord2 = document.getElementById('reset-wachtwoord2')?.value;
+  const meldingEl = document.getElementById('reset-melding');
+  function toonFout(msg){ if(meldingEl) meldingEl.innerHTML = `<div style="background:#fef2f2;border:1px solid #fca5a5;color:#991b1b;border-radius:var(--radius);padding:10px 12px;margin-bottom:1rem;font-size:13px">${msg}</div>`; }
+
+  if(!wachtwoord||!wachtwoord2){ toonFout('Vul beide velden in'); return; }
+  if(wachtwoord.length<8){ toonFout('Wachtwoord moet minimaal 8 tekens zijn'); return; }
+  if(wachtwoord!==wachtwoord2){ toonFout('Wachtwoorden komen niet overeen'); return; }
+
+  const { error } = await db.auth.updateUser({ password: wachtwoord });
+  if(error){ toonFout('Wachtwoord instellen mislukt: '+error.message); return; }
+
+  if(meldingEl) meldingEl.innerHTML = `<div style="background:var(--fcb-groen-licht);border:1px solid #b8e0bb;color:#1B5E20;border-radius:var(--radius);padding:10px 12px;margin-bottom:1rem;font-size:13px">Wachtwoord ingesteld! Je wordt ingelogd…</div>`;
+  setTimeout(()=>{ window.location.href = '/'; }, 1200);
 }
 
 // ============================================================
@@ -6016,6 +6075,14 @@ async function startApp(){
     // (de persoon heeft immers nog geen account totdat dit proces is voltooid).
     document.body.classList.add('fan-live-modus'); // dezelfde 'kale' opmaak hergebruiken (geen sidebar/tabbar)
     initKoppelAccountPagina();
+    return;
+  }
+
+  // Wachtwoord-reset: Supabase stuurt de gebruiker terug met een 'recovery'-sessie in de URL
+  // (hash-fragment). Detecteer dit voordat de normale sessie-check plaatsvindt.
+  if(window.location.hash.includes('type=recovery')){
+    document.body.classList.add('fan-live-modus');
+    document.getElementById('pageContent').innerHTML = renderNieuwWachtwoordScherm();
     return;
   }
 
