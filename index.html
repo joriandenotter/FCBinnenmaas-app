@@ -324,7 +324,7 @@ body.fan-live-modus .main-area{padding:1rem !important;margin:0 !important}
       <span>Smart Trainer</span>
     </div>
     <div class="sb-brand">
-      <div class="logo-wrap" onclick="document.getElementById('lf').click()" title="Klik om logo te uploaden">
+      <div class="logo-wrap" onclick="klikOpLogo()" title="Klik om logo te wijzigen">
         <div class="logo-ph" id="lph">
           <i class="ti ti-upload" style="font-size:16px;color:rgba(255,255,255,.7)"></i>
         </div>
@@ -352,9 +352,6 @@ body.fan-live-modus .main-area{padding:1rem !important;margin:0 !important}
     </nav>
 
     <div class="sb-footer">
-      <button class="hbtn" id="rmLogoBtn" style="display:none" onclick="removeLogo()">
-        <i class="ti ti-trash" style="font-size:13px"></i><span>Verwijder logo</span>
-      </button>
       <button class="sb-item" onclick="openBeheer('info')"><i class="ti ti-settings"></i><span>Beheer team</span></button>
     </div>
   </aside>
@@ -540,7 +537,7 @@ async function stuurWachtwoordReset(){
   }
   const { error } = await db.auth.resetPasswordForEmail(email, { redirectTo: window.location.origin });
   if(error){
-    if(meldingEl) meldingEl.innerHTML = `<div style="background:#fef2f2;border:1px solid #fca5a5;color:#991b1b;border-radius:var(--radius);padding:10px 12px;margin-bottom:1rem;font-size:13px">Versturen mislukt: ${vertaalFoutmelding(error)}</div>`;
+    if(meldingEl) meldingEl.innerHTML = `<div style="background:#fef2f2;border:1px solid #fca5a5;color:#991b1b;border-radius:var(--radius);padding:10px 12px;margin-bottom:1rem;font-size:13px">Versturen mislukt: ${error.message}</div>`;
     return;
   }
   if(meldingEl) meldingEl.innerHTML = `<div style="background:var(--fcb-groen-licht);border:1px solid #b8e0bb;color:#1B5E20;border-radius:var(--radius);padding:10px 12px;margin-bottom:1rem;font-size:13px">Als dit e-mailadres bekend is, is er een e-mail verstuurd met een link om je wachtwoord opnieuw in te stellen.</div>`;
@@ -581,7 +578,7 @@ async function slaNieuwWachtwoordOp(){
   if(wachtwoord!==wachtwoord2){ toonFout('Wachtwoorden komen niet overeen'); return; }
 
   const { error } = await db.auth.updateUser({ password: wachtwoord });
-  if(error){ toonFout('Wachtwoord instellen mislukt: '+vertaalFoutmelding(error)); return; }
+  if(error){ toonFout('Wachtwoord instellen mislukt: '+error.message); return; }
 
   if(meldingEl) meldingEl.innerHTML = `<div style="background:var(--fcb-groen-licht);border:1px solid #b8e0bb;color:#1B5E20;border-radius:var(--radius);padding:10px 12px;margin-bottom:1rem;font-size:13px">Wachtwoord ingesteld! Je wordt ingelogd…</div>`;
   setTimeout(()=>{ window.location.href = '/'; }, 1200);
@@ -600,7 +597,7 @@ async function wijzigEigenWachtwoord(){
   if(wachtwoord!==wachtwoord2){ toonFout('Wachtwoorden komen niet overeen'); return; }
 
   const { error } = await db.auth.updateUser({ password: wachtwoord });
-  if(error){ toonFout('Wachtwoord wijzigen mislukt: '+vertaalFoutmelding(error)); return; }
+  if(error){ toonFout('Wachtwoord wijzigen mislukt: '+error.message); return; }
 
   if(meldingEl) meldingEl.innerHTML = `<div style="background:var(--fcb-groen-licht);border:1px solid #b8e0bb;color:#1B5E20;border-radius:var(--radius);padding:10px 12px;margin-bottom:1rem;font-size:13px">Wachtwoord bijgewerkt!</div>`;
   const v1=document.getElementById('profielWachtwoordInput'), v2=document.getElementById('profielWachtwoordInput2');
@@ -691,7 +688,7 @@ let spelerSeizoenen = []; // ruwe koppelingen speler<->seizoen, zoals opgehaald 
 
 async function laadSpelersUitDatabase(){
   const { data, error } = await db.from('spelers').select('*').order('id');
-  if(error){ console.error('Fout bij laden spelers:', error.message||error, error); showToast('Kon spelers niet laden: '+vertaalFoutmelding(error), 'fout'); return false; }
+  if(error){ console.error('Fout bij laden spelers:', error.message||error, error); showToast('Kon spelers niet laden: '+(error.message||'onbekende fout'), 'fout'); return false; }
   const dbWasLeeg = !data || data.length===0;
   if(!dbWasLeeg){
     spelers = data.map(rijNaarSpeler);
@@ -707,7 +704,7 @@ async function syncSpelerNaarDatabase(sp){
   const rij = spelerNaarRij(sp);
   sp.publicCode = rij.public_code; // onthoud de (mogelijk net gegenereerde) code, ook lokaal
   const { error } = await db.from('spelers').upsert(rij);
-  if(error){ console.error('Fout bij opslaan speler:', error.message||error, error); showToast('Opslaan mislukt: '+vertaalFoutmelding(error), 'fout'); return false; }
+  if(error){ console.error('Fout bij opslaan speler:', error.message||error, error); showToast('Opslaan mislukt: '+(error.message||'controleer verbinding'), 'fout'); return false; }
   return true;
 }
 
@@ -723,7 +720,7 @@ async function laadSpelerSeizoenenUitDatabase(){
 async function syncSpelerSeizoenNaarDatabase(sp){
   const rij = spelerSeizoenNaarRij(sp);
   const { data, error } = await db.from('speler_seizoenen').upsert(rij, {onConflict:'speler_id,seizoen_id'}).select().maybeSingle();
-  if(error){ console.error('Fout bij opslaan speler-seizoen:', error.message||error, error); showToast('Opslaan mislukt: '+vertaalFoutmelding(error), 'fout'); return; }
+  if(error){ console.error('Fout bij opslaan speler-seizoen:', error.message||error, error); showToast('Opslaan mislukt: '+(error.message||'controleer verbinding'), 'fout'); return; }
   if(data) sp.speelSeizoenKoppelingId = data.id; // onthoud het echte id, ook als dit een nieuwe koppeling was
 }
 
@@ -738,7 +735,7 @@ function rijNaarSeizoen(r){
 }
 async function laadSeizoenenUitDatabase(){
   const { data, error } = await db.from('seizoenen').select('*').order('id');
-  if(error){ console.error('Fout bij laden seizoenen:', error.message||error, error); showToast('Kon seizoenen niet laden: '+vertaalFoutmelding(error), 'fout'); return; }
+  if(error){ console.error('Fout bij laden seizoenen:', error.message||error, error); showToast('Kon seizoenen niet laden: '+(error.message||'onbekende fout'), 'fout'); return; }
   if(data && data.length){
     seizoenen = data.map(rijNaarSeizoen);
     nextSeizoenId = Math.max(...seizoenen.map(s=>s.id), 0) + 1;
@@ -748,7 +745,7 @@ async function laadSeizoenenUitDatabase(){
 }
 async function syncSeizoenNaarDatabase(s){
   const { error } = await db.from('seizoenen').upsert(seizoenNaarRij(s));
-  if(error){ console.error('Fout bij opslaan seizoen:', error.message||error, error); showToast('Opslaan seizoen mislukt: '+vertaalFoutmelding(error), 'fout'); }
+  if(error){ console.error('Fout bij opslaan seizoen:', error.message||error, error); showToast('Opslaan seizoen mislukt: '+(error.message||'controleer verbinding'), 'fout'); }
 }
 async function verwijderSeizoenUitDatabase(id){
   const { error } = await db.from('seizoenen').delete().eq('id', id);
@@ -813,7 +810,7 @@ async function laadWedstrijdenVoorSeizoen(seizoenId){
   let query = db.from('wedstrijden').select('*').order('id');
   if(seizoenId) query = query.eq('seizoen_id', seizoenId);
   const { data, error } = await query;
-  if(error){ console.error('Fout bij laden wedstrijden:', error.message||error, error); showToast('Kon wedstrijden niet laden: '+vertaalFoutmelding(error), 'fout'); return; }
+  if(error){ console.error('Fout bij laden wedstrijden:', error.message||error, error); showToast('Kon wedstrijden niet laden: '+(error.message||'onbekende fout'), 'fout'); return; }
   wedstrijden = (data||[]).map(rijNaarWedstrijd);
   nextWedstrijdId = Math.max(...wedstrijden.map(w=>w.id), 0) + 1;
   draw();
@@ -841,7 +838,7 @@ function syncWedstrijdNaarDatabase(w){
     });
     if(!rijen.length) return;
     const { error } = await db.from('wedstrijden').upsert(rijen);
-    if(error){ console.error('Fout bij opslaan wedstrijd:', error.message||error, error); showToast('Opslaan wedstrijd mislukt: '+vertaalFoutmelding(error), 'fout'); }
+    if(error){ console.error('Fout bij opslaan wedstrijd:', error.message||error, error); showToast('Opslaan wedstrijd mislukt: '+(error.message||'controleer verbinding'), 'fout'); }
   }, 400);
 }
 
@@ -866,7 +863,7 @@ async function laadTegenstandersUitDatabase(){
 // ============================================================
 async function laadGebruikersUitDatabase(){
   const { data, error } = await db.from('gebruikers').select('*').order('naam');
-  if(error){ console.error('Fout bij laden gebruikers:', error.message||error, error); showToast('Kon gebruikers niet laden: '+vertaalFoutmelding(error), 'fout'); return; }
+  if(error){ console.error('Fout bij laden gebruikers:', error.message||error, error); showToast('Kon gebruikers niet laden: '+(error.message||'onbekende fout'), 'fout'); return; }
   gebruikers = data||[];
 }
 
@@ -877,7 +874,7 @@ let ontwikkelscores = {}; // {spelerId: {subId: score}}
 
 async function laadOntwikkelscoresUitDatabase(){
   const { data, error } = await db.from('ontwikkelscores').select('*');
-  if(error){ console.error('Fout bij laden ontwikkelscores:', error.message||error, error); showToast('Kon ontwikkelscores niet laden: '+vertaalFoutmelding(error), 'fout'); return; }
+  if(error){ console.error('Fout bij laden ontwikkelscores:', error.message||error, error); showToast('Kon ontwikkelscores niet laden: '+(error.message||'onbekende fout'), 'fout'); return; }
   ontwikkelscores = {};
   (data||[]).forEach(r=>{
     if(!ontwikkelscores[r.speler_id]) ontwikkelscores[r.speler_id] = {};
@@ -894,7 +891,7 @@ async function zetOntwikkelscore(spelerId, subId, nieuweScore){
   if(!magBewerken()){ showToast('Alleen Staf – bewerken of Staf – admin mag ontwikkelscores wijzigen', 'fout'); return; }
   nieuweScore = Math.max(0, Math.min(100, Math.round(nieuweScore/5)*5)); // altijd afronden op veelvoud van 5, binnen 0-100
   const { error } = await db.from('ontwikkelscores').upsert({speler_id:spelerId, sub_id:subId, score:nieuweScore}, {onConflict:'speler_id,sub_id'});
-  if(error){ console.error('Fout bij opslaan ontwikkelscore:', error.message||error, error); showToast('Opslaan mislukt: '+vertaalFoutmelding(error), 'fout'); return; }
+  if(error){ console.error('Fout bij opslaan ontwikkelscore:', error.message||error, error); showToast('Opslaan mislukt: '+(error.message||'controleer verbinding'), 'fout'); return; }
   if(!ontwikkelscores[spelerId]) ontwikkelscores[spelerId] = {};
   ontwikkelscores[spelerId][subId] = nieuweScore;
   draw();
@@ -903,7 +900,7 @@ async function zetOntwikkelscore(spelerId, subId, nieuweScore){
 async function wijzigRolNiveau(gebruikerId, nieuwRolNiveau){
   if(!isAdmin()){ showToast('Alleen een admin mag rollen wijzigen', 'fout'); return; }
   const { error } = await db.from('gebruikers').update({rol_niveau:nieuwRolNiveau}).eq('id', gebruikerId);
-  if(error){ console.error('Fout bij wijzigen rol:', error.message||error, error); showToast('Rol wijzigen mislukt: '+vertaalFoutmelding(error), 'fout'); return; }
+  if(error){ console.error('Fout bij wijzigen rol:', error.message||error, error); showToast('Rol wijzigen mislukt: '+(error.message||'controleer verbinding'), 'fout'); return; }
   const g = gebruikers.find(x=>x.id===gebruikerId);
   if(g) g.rol_niveau = nieuwRolNiveau;
   showToast('Rol bijgewerkt');
@@ -912,7 +909,7 @@ async function wijzigRolNiveau(gebruikerId, nieuwRolNiveau){
 
 async function wijzigFunctieTitel(gebruikerId, nieuweFunctie){
   const { error } = await db.from('gebruikers').update({functie:nieuweFunctie}).eq('id', gebruikerId);
-  if(error){ console.error('Fout bij wijzigen functie:', error.message||error, error); showToast('Functie wijzigen mislukt: '+vertaalFoutmelding(error), 'fout'); return; }
+  if(error){ console.error('Fout bij wijzigen functie:', error.message||error, error); showToast('Functie wijzigen mislukt: '+(error.message||'controleer verbinding'), 'fout'); return; }
   const g = gebruikers.find(x=>x.id===gebruikerId);
   if(g) g.functie = nieuweFunctie;
   // Als dit de ingelogde gebruiker zelf is: ook de topbar-weergave direct bijwerken
@@ -929,7 +926,7 @@ async function genereerKoppelUrl(gebruikerId){
   if(!isAdmin()){ showToast('Alleen een admin mag koppel-links genereren', 'fout'); return null; }
   const code = genereerPublicCode();
   const { error } = await db.from('gebruikers').update({koppel_code:code, koppel_code_gebruikt:false, auth_user_id:null}).eq('id', gebruikerId);
-  if(error){ console.error('Fout bij genereren koppel-link:', error.message||error, error); showToast('Koppel-link genereren mislukt: '+vertaalFoutmelding(error), 'fout'); return null; }
+  if(error){ console.error('Fout bij genereren koppel-link:', error.message||error, error); showToast('Koppel-link genereren mislukt: '+(error.message||'onbekende fout'), 'fout'); return null; }
   const g = gebruikers.find(x=>x.id===gebruikerId);
   if(g){ g.koppel_code=code; g.koppel_code_gebruikt=false; g.auth_user_id=null; }
   return `${window.location.origin}/koppel-account/${code}`;
@@ -947,7 +944,7 @@ async function slaTegenstanderOp(naam, logo){
     return bestaand;
   }
   const { data, error } = await db.from('tegenstanders').insert({naam, logo:logo||null}).select().maybeSingle();
-  if(error){ console.error('Fout bij aanmaken tegenstander:', error.message||error, error); showToast('Tegenstander opslaan mislukt: '+vertaalFoutmelding(error), 'fout'); return null; }
+  if(error){ console.error('Fout bij aanmaken tegenstander:', error.message||error, error); showToast('Tegenstander opslaan mislukt: '+(error.message||'controleer verbinding'), 'fout'); return null; }
   if(data) tegenstanders.push(data);
   return data;
 }
@@ -995,7 +992,7 @@ async function laadTrainingenVoorSeizoen(seizoenId){
   let query = db.from('trainingen').select('*').order('datum');
   if(seizoenId) query = query.eq('seizoen_id', seizoenId);
   const { data, error } = await query;
-  if(error){ console.error('Fout bij laden trainingen:', error.message||error, error); showToast('Kon trainingen niet laden: '+vertaalFoutmelding(error), 'fout'); return; }
+  if(error){ console.error('Fout bij laden trainingen:', error.message||error, error); showToast('Kon trainingen niet laden: '+(error.message||'onbekende fout'), 'fout'); return; }
   trainingen = (data||[]).map(rijNaarTraining);
   nextTrainingId = Math.max(...trainingen.map(t=>t.id), 0) + 1;
   await laadOefeningenVoorTrainingen(trainingen.map(t=>t.id));
@@ -1009,7 +1006,7 @@ async function laadOefeningenVoorTrainingen(trainingIds){
   oefeningen = {};
   if(!trainingIds.length) return;
   const { data, error } = await db.from('oefeningen').select('*').in('training_id', trainingIds).order('volgorde');
-  if(error){ console.error('Fout bij laden oefeningen:', error.message||error, error); showToast('Kon oefeningen niet laden: '+vertaalFoutmelding(error), 'fout'); return; }
+  if(error){ console.error('Fout bij laden oefeningen:', error.message||error, error); showToast('Kon oefeningen niet laden: '+(error.message||'onbekende fout'), 'fout'); return; }
   (data||[]).forEach(r=>{
     if(!oefeningen[r.training_id]) oefeningen[r.training_id] = [];
     oefeningen[r.training_id].push(rijNaarOefening(r));
@@ -1022,7 +1019,7 @@ async function syncTrainingNaarDatabase(t){
   const rij = trainingNaarRij(t);
   t.publicCode = rij.public_code; // onthoud de (mogelijk net gegenereerde) code, ook lokaal
   const { error } = await db.from('trainingen').upsert(rij);
-  if(error){ console.error('Fout bij opslaan training:', error.message||error, error); showToast('Opslaan training mislukt: '+vertaalFoutmelding(error), 'fout'); }
+  if(error){ console.error('Fout bij opslaan training:', error.message||error, error); showToast('Opslaan training mislukt: '+(error.message||'controleer verbinding'), 'fout'); }
 }
 async function verwijderTrainingUitDatabase(id){
   const { error } = await db.from('trainingen').delete().eq('id', id);
@@ -1037,11 +1034,11 @@ async function syncOefeningNaarDatabase(oef, trainingId){
   const rij = oefeningNaarRij(oef, trainingId, volgorde);
   if(isNieuw){
     const { data, error } = await db.from('oefeningen').insert(rij).select().maybeSingle();
-    if(error){ console.error('Fout bij aanmaken oefening:', error.message||error, error); showToast('Opslaan oefening mislukt: '+vertaalFoutmelding(error), 'fout'); return; }
+    if(error){ console.error('Fout bij aanmaken oefening:', error.message||error, error); showToast('Opslaan oefening mislukt: '+(error.message||'controleer verbinding'), 'fout'); return; }
     if(data){ oef.dbId = data.id; }
   } else {
     const { error } = await db.from('oefeningen').update(rij).eq('id', oef.dbId);
-    if(error){ console.error('Fout bij bijwerken oefening:', error.message||error, error); showToast('Opslaan oefening mislukt: '+vertaalFoutmelding(error), 'fout'); }
+    if(error){ console.error('Fout bij bijwerken oefening:', error.message||error, error); showToast('Opslaan oefening mislukt: '+(error.message||'controleer verbinding'), 'fout'); }
   }
 }
 async function verwijderOefeningUitDatabase(oef){
@@ -1072,7 +1069,7 @@ async function laadInstellingenUitDatabase(){
 
 async function syncInstellingenNaarDatabase(){
   const { error } = await db.from('instellingen').update({ club_naam: clubNaam, club_logo: clubLogo, ontwikkeling_ingeschakeld: ontwikkelingIngeschakeld }).eq('id',1);
-  if(error){ console.error('Fout bij opslaan instellingen:', error.message||error, error); showToast('Opslaan mislukt: '+vertaalFoutmelding(error), 'fout'); }
+  if(error){ console.error('Fout bij opslaan instellingen:', error.message||error, error); showToast('Opslaan mislukt: '+(error.message||'controleer verbinding'), 'fout'); }
 }
 
 function toggleOntwikkeling(){
@@ -1213,29 +1210,8 @@ function spelersInActiefSeizoen(){ return spelers.filter(s=>s.doetMeeDitSeizoen)
 function showToast(msg, type){
   toast={msg, type:type||'succes'};
   draw();
-  // Foutmeldingen blijven staan totdat de gebruiker ze wegklikt, of totdat er een nieuwe
-  // (succes)melding komt -- dan is er tijd genoeg om de vaak wat technische foutmelding te lezen.
-  if(type!=='fout'){
-    setTimeout(()=>{ toast=null; draw(); }, 3000);
-  }
-}
-function sluitToast(){ toast=null; draw(); }
-
-// Vertaalt veelvoorkomende, technische Supabase/Postgres-foutmeldingen naar begrijpelijke taal.
-// Onbekende foutmeldingen worden gewoon doorgegeven (beter een technische melding dan niets).
-function vertaalFoutmelding(error){
-  const msg = (error && error.message) ? error.message : String(error||'');
-  const laag = msg.toLowerCase();
-  if(laag.includes('foreign key constraint')) return 'Deze actie kon niet worden voltooid omdat gekoppelde gegevens nog niet klaar waren. Probeer het nog eens.';
-  if(laag.includes('duplicate key') || laag.includes('already exists')) return 'Dit bestaat al en kan niet nogmaals worden toegevoegd.';
-  if(laag.includes('row-level security') || laag.includes('permission denied')) return 'Je hebt geen toestemming om dit te doen. Neem contact op met de beheerder als je denkt dat dit niet klopt.';
-  if(laag.includes('network') || laag.includes('failed to fetch')) return 'Geen verbinding met de server. Controleer je internetverbinding en probeer het opnieuw.';
-  if(laag.includes('rate limit')) return 'Je hebt dit te vaak achter elkaar geprobeerd. Wacht even en probeer het daarna opnieuw.';
-  if(laag.includes('invalid login credentials')) return 'E-mailadres of wachtwoord klopt niet.';
-  if(laag.includes('email not confirmed')) return 'Bevestig eerst je e-mailadres via de link die je per mail hebt ontvangen.';
-  if(laag.includes('already registered')) return 'Dit e-mailadres heeft al een account.';
-  if(!msg) return 'Er ging iets mis. Probeer het opnieuw.';
-  return msg; // geen bekende vertaling: toon de originele melding, dat is nuttiger dan niets
+  const duur = (type==='fout') ? 6000 : 3000;
+  setTimeout(()=>{ toast=null; draw(); }, duur);
 }
 
 // Klok
@@ -1470,7 +1446,7 @@ async function voltooiKoppeling(){
     if(signUpError.message && signUpError.message.toLowerCase().includes('already registered')){
       toonFout('Dit e-mailadres heeft al een account. Gebruik een ander e-mailadres, of neem contact op met de beheerder om je bestaande account te laten koppelen.');
     } else {
-      toonFout('Account aanmaken mislukt: '+vertaalFoutmelding(signUpError));
+      toonFout('Account aanmaken mislukt: '+signUpError.message);
     }
     return;
   }
@@ -1700,7 +1676,7 @@ function draw(){
   let html='';
   if(toast){
     const isFout = toast.type==='fout';
-    html+=`<div class="toast${isFout?' toast-fout':''}"><i class="ti ${isFout?'ti-alert-circle':'ti-circle-check'}" style="font-size:16px;flex-shrink:0"></i><span style="flex:1">${toast.msg}</span>${isFout?`<button onclick="sluitToast()" style="background:none;border:none;cursor:pointer;color:inherit;opacity:.6;padding:0;flex-shrink:0"><i class="ti ti-x" style="font-size:15px"></i></button>`:''}</div>`;
+    html+=`<div class="toast${isFout?' toast-fout':''}"><i class="ti ${isFout?'ti-alert-circle':'ti-circle-check'}" style="font-size:16px"></i>${toast.msg}</div>`;
   }
   if(isArchiefModus()){
     const bekekenSeizoen=seizoenen.find(s=>s.id===bekijkSeizoenId);
@@ -1723,6 +1699,7 @@ function draw(){
   if(spelerskeuzeSeizoenId) html+=renderSpelerskeuzeVoorSeizoen();
   if(verwijderSeizoenId) html+=renderVerwijderSeizoenDialoog();
   if(verwijderTegenstanderId) html+=renderVerwijderTegenstanderDialoog();
+  if(logoMenuOpen) html+=renderLogoMenu();
   el.innerHTML=html;
   // Fix stroke-dasharray via DOM na innerHTML (innerHTML parse respecteert geen SVG namespace attrs)
   document.querySelectorAll('g[data-streep="1"] path[stroke="white"]').forEach(p => {
@@ -1876,7 +1853,8 @@ function renderDashboard(){
   const g=gs.filter(w=>w.score&&w.score.e===w.score.t).length;
   const v=gs.filter(w=>w.score&&w.score.e<w.score.t).length;
   const df=gs.reduce((s,w)=>s+(w.score?w.score.e-w.score.t:0),0);
-  const rows=wedstrijden.slice(0,3).map(w=>`
+  const recenteWedstrijden = gs.slice().sort((a,b)=>b.datum.localeCompare(a.datum)).slice(0,3);
+  const rows=recenteWedstrijden.map(w=>`
     <div class="match-row" onclick="activeWedstrijdId=${w.id};setPage('wedstrijden',true)">
       <div style="font-size:12px;color:var(--text-muted);margin-bottom:4px">${fmtDate(w.datum)}</div>
       <div style="font-size:14px;font-weight:600;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
@@ -2572,7 +2550,7 @@ async function uploadGekozenTegenstanderLogo(e, prefix){
     if(gekozen.id){
       // Bestaand tegenstander-record: meteen in de database bijwerken
       const { error } = await db.from('tegenstanders').update({logo:gecomprimeerd}).eq('id', gekozen.id);
-      if(error){ console.error('Fout bij opslaan tegenstander-logo:', error.message||error, error); showToast('Logo opslaan mislukt: '+vertaalFoutmelding(error), 'fout'); }
+      if(error){ console.error('Fout bij opslaan tegenstander-logo:', error.message||error, error); showToast('Logo opslaan mislukt: '+(error.message||'controleer verbinding'), 'fout'); }
     }
     // Zonder eigen id (fallback-object van een oudere wedstrijd zonder koppeling): het logo wordt
     // pas echt opgeslagen zodra de wedstrijd zelf wordt opgeslagen (via bepaalTegenstanderVoorOpslaan).
@@ -2661,7 +2639,7 @@ async function uploadTegenstanderLogoBeheer(e, tegenstanderId){
   r.onload=async ev=>{
     const gecomprimeerd = await comprimeerAfbeelding(ev.target.result, 200);
     const { error } = await db.from('tegenstanders').update({logo:gecomprimeerd}).eq('id', tegenstanderId);
-    if(error){ console.error('Fout bij opslaan tegenstander-logo:', error.message||error, error); showToast('Logo opslaan mislukt: '+vertaalFoutmelding(error), 'fout'); return; }
+    if(error){ console.error('Fout bij opslaan tegenstander-logo:', error.message||error, error); showToast('Logo opslaan mislukt: '+(error.message||'controleer verbinding'), 'fout'); return; }
     const t = tegenstanders.find(x=>x.id===tegenstanderId);
     if(t) t.logo = gecomprimeerd;
     showToast('Logo bijgewerkt');
@@ -2733,7 +2711,7 @@ async function bevestigVerwijderWedstrijd(wedstrijdId){
   const { error } = await db.from('wedstrijden').delete().eq('id', wedstrijdId);
   if(error){
     console.error('Fout bij verwijderen wedstrijd:', error.message||error, error);
-    showToast('Verwijderen mislukt: '+vertaalFoutmelding(error), 'fout');
+    showToast('Verwijderen mislukt: '+(error.message||'controleer je rechten'), 'fout');
     return; // de lokale lijst NIET bijwerken, want de database-verwijdering is niet gelukt
   }
   wedstrijden = wedstrijden.filter(x=>x.id!==wedstrijdId);
@@ -2865,6 +2843,9 @@ function renderWedstrijdDetail(){
   const startKnop = gepland
     ? `<button class="btn-green" onclick="startWedstrijd(${w.id})"><i class="ti ti-player-play" style="font-size:14px"></i> Wedstrijd starten</button>`
     : '';
+  const uitslagKnop = gepland
+    ? `<button class="btn-outline" onclick="openUitslagInvullen(${w.id})"><i class="ti ti-clipboard-text" style="font-size:14px"></i> Uitslag invullen</button>`
+    : '';
   const bewerkKnop = `<button class="btn-outline" onclick="openBewerkWedstrijd(${w.id})"><i class="ti ti-pencil" style="font-size:14px"></i> Bewerken</button>`;
   const deelKnop = `<button class="btn-outline" onclick="deelLiveLink(${w.id})"><i class="ti ti-share" style="font-size:14px"></i> Live delen</button>`;
   const verwijderKnop = `<button class="btn-outline" style="border-color:#fca5a5;color:#dc2626" onclick="vraagVerwijderWedstrijdBevestiging(${w.id})"><i class="ti ti-trash" style="font-size:14px"></i></button>`;
@@ -2873,6 +2854,7 @@ function renderWedstrijdDetail(){
     <button class="back-btn" onclick="activeWedstrijdId=null;bewerkWedstrijdId=null;draw()"><i class="ti ti-arrow-left" style="font-size:14px"></i> Terug naar wedstrijden</button>
     ${bewerkWedstrijdId===w.id?renderBewerkWedstrijd(w):''}
     ${verwijderWedstrijdId===w.id?renderVerwijderWedstrijdDialoog(w):''}
+    ${uitslagInvullenId===w.id?renderUitslagInvullen(w):''}
     <div class="card">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;padding-bottom:.75rem;border-bottom:1px solid var(--border);flex-wrap:wrap;gap:8px">
         <div>
@@ -2884,7 +2866,7 @@ function renderWedstrijdDetail(){
             ${statusBadge}
           </div>
         </div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap">${bewerkKnop}${startKnop}${deelKnop}${verwijderKnop}</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">${bewerkKnop}${startKnop}${uitslagKnop}${deelKnop}${verwijderKnop}</div>
       </div>
       <div class="tab-bar">
         ${tabs.map(t=>`<div class="tab${wedstrijdTab===t[0]?' active':''}" onclick="wedstrijdTab='${t[0]}';draw()">${t[1]}</div>`).join('')}
@@ -3388,6 +3370,80 @@ function floitAf(wedstrijdId){
   activeWedstrijdId=w.id; wedstrijdTab='speelminuten';
   syncWedstrijdNaarDatabase(w);
   showToast('Wedstrijd opgeslagen');
+  draw();
+}
+
+// ---- Achteraf een uitslag invullen (voor wedstrijden zonder live-gebruik) ----
+let uitslagInvullenId = null;
+let uitslagDoelpunten = []; // [{speler:naam, assist:naam|'geen'}], eigen doelpunten van FC Binnenmaas 1
+
+function openUitslagInvullen(wedstrijdId){
+  if(blokkeerInArchief()) return;
+  uitslagInvullenId = wedstrijdId;
+  uitslagDoelpunten = [];
+  draw();
+}
+function sluitUitslagInvullen(){ uitslagInvullenId=null; uitslagDoelpunten=[]; draw(); }
+
+function renderUitslagInvullen(w){
+  const teamSpelers = spelersInActiefSeizoen().filter(s=>s.type==='team');
+  const doelpuntRijen = uitslagDoelpunten.map((d,i)=>`
+    <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;flex-wrap:wrap">
+      <select onchange="uitslagDoelpunten[${i}].speler=this.value;draw()" style="flex:1;min-width:130px;font-size:12px;padding:6px 8px;border:1px solid var(--border);border-radius:8px;font-family:inherit">
+        ${teamSpelers.map(sp=>`<option value="${sp.naam}"${d.speler===sp.naam?' selected':''}>${sp.naam}</option>`).join('')}
+      </select>
+      <span style="font-size:11px;color:var(--text-muted)">assist:</span>
+      <select onchange="uitslagDoelpunten[${i}].assist=this.value;draw()" style="flex:1;min-width:130px;font-size:12px;padding:6px 8px;border:1px solid var(--border);border-radius:8px;font-family:inherit">
+        <option value="geen"${d.assist==='geen'?' selected':''}>Geen assist</option>
+        ${teamSpelers.filter(sp=>sp.naam!==d.speler).map(sp=>`<option value="${sp.naam}"${d.assist===sp.naam?' selected':''}>${sp.naam}</option>`).join('')}
+      </select>
+      <button onclick="uitslagDoelpunten.splice(${i},1);draw()" style="background:none;border:none;cursor:pointer;color:#dc2626;flex-shrink:0"><i class="ti ti-trash" style="font-size:14px"></i></button>
+    </div>`).join('');
+
+  return`<div style="background:#f0fdf4;border:1px solid var(--fcb-groen);border-radius:var(--radius);padding:1rem;margin-bottom:1rem">
+    <div style="font-size:13px;font-weight:600;color:var(--fcb-groen);margin-bottom:.75rem;display:flex;align-items:center;gap:6px"><i class="ti ti-clipboard-text" style="font-size:15px"></i> Uitslag invullen</div>
+    <div style="font-size:12px;color:var(--text-muted);margin-bottom:1rem">Voor wedstrijden die niet live zijn bijgehouden. Vul de eindstand in en eventueel de doelpuntenmakers.</div>
+    <div class="form-grid" style="margin-bottom:1rem">
+      <div><label class="field-label">Doelpunten FC Binnenmaas 1</label><input type="number" min="0" id="ui-score-eigen" class="field-input" placeholder="0"></div>
+      <div><label class="field-label">Doelpunten ${w.teg}</label><input type="number" min="0" id="ui-score-teg" class="field-input" placeholder="0"></div>
+    </div>
+    <div class="sec-lbl">Doelpuntenmakers FC Binnenmaas 1 (optioneel)</div>
+    ${doelpuntRijen}
+    <button onclick="uitslagDoelpunten.push({speler:'${teamSpelers[0]?.naam||''}',assist:'geen'});draw()" style="background:none;border:none;cursor:pointer;color:#185FA5;font-size:12px;font-family:inherit;padding:4px 0;display:flex;align-items:center;gap:4px;margin-bottom:1rem"><i class="ti ti-plus" style="font-size:13px"></i> Doelpuntenmaker toevoegen</button>
+    <div style="display:flex;gap:6px;justify-content:flex-end">
+      <button class="btn-outline" style="font-size:12px;padding:5px 12px" onclick="sluitUitslagInvullen()">Annuleren</button>
+      <button class="btn-green" style="font-size:12px;padding:5px 12px" onclick="slaUitslagOp(${w.id})"><i class="ti ti-check" style="font-size:12px"></i> Opslaan</button>
+    </div>
+  </div>`;
+}
+
+async function slaUitslagOp(wedstrijdId){
+  if(blokkeerInArchief()) return;
+  const w = ensureWedstrijdVelden(wedstrijden.find(x=>x.id===wedstrijdId));
+  const scoreEigen = parseInt(document.getElementById('ui-score-eigen')?.value)||0;
+  const scoreTeg = parseInt(document.getElementById('ui-score-teg')?.value)||0;
+  // Aantal opgegeven doelpuntenmakers mag niet meer zijn dan het aantal eigen doelpunten
+  if(uitslagDoelpunten.length > scoreEigen){
+    showToast(`Je hebt ${uitslagDoelpunten.length} doelpuntenmakers opgegeven, maar maar ${scoreEigen} doelpunt${scoreEigen===1?'':'en'} voor FC Binnenmaas 1`, 'fout');
+    return;
+  }
+  w.score = {e:scoreEigen, t:scoreTeg};
+  w.status = 'gespeeld';
+  w.events = w.events||[];
+  uitslagDoelpunten.forEach(d=>{
+    if(!d.speler) return;
+    w.events.push({type:'doelpunt', min:null, speler:d.speler, assist:d.assist||'geen'});
+    const sp = spelers.find(s=>s.naam===d.speler);
+    if(sp){ sp.doelpunten=(sp.doelpunten||0)+1; syncSpelerSeizoenNaarDatabase(sp); }
+    if(d.assist && d.assist!=='geen'){
+      const assistSp = spelers.find(s=>s.naam===d.assist);
+      if(assistSp){ assistSp.assists=(assistSp.assists||0)+1; syncSpelerSeizoenNaarDatabase(assistSp); }
+    }
+  });
+  syncWedstrijdNaarDatabase(w);
+  uitslagInvullenId=null;
+  uitslagDoelpunten=[];
+  showToast('Uitslag opgeslagen');
   draw();
 }
 
@@ -4128,7 +4184,7 @@ async function bevestigSpelerskeuzeVoorSeizoen(){
   const teVerwijderen = bestaandeKoppelingen.filter(ss=>!gekozenIds.has(ss.speler_id));
   for(const ss of teVerwijderen){
     const { error } = await db.from('speler_seizoenen').delete().eq('id', ss.id);
-    if(error){ console.error('Fout bij verwijderen speler-seizoen koppeling:', error.message||error, error); showToast('Verwijderen mislukt: '+vertaalFoutmelding(error), 'fout'); return; }
+    if(error){ console.error('Fout bij verwijderen speler-seizoen koppeling:', error.message||error, error); showToast('Verwijderen mislukt: '+(error.message||'controleer verbinding'), 'fout'); return; }
   }
   spelerSeizoenen = spelerSeizoenen.filter(ss=>!teVerwijderen.includes(ss));
 
@@ -4145,7 +4201,7 @@ async function bevestigSpelerskeuzeVoorSeizoen(){
       };
     });
     const { data, error } = await db.from('speler_seizoenen').insert(rijen).select();
-    if(error){ console.error('Fout bij aanmaken speler-seizoen koppelingen:', error.message||error, error); showToast('Opslaan mislukt: '+vertaalFoutmelding(error), 'fout'); return; }
+    if(error){ console.error('Fout bij aanmaken speler-seizoen koppelingen:', error.message||error, error); showToast('Opslaan mislukt: '+(error.message||'controleer verbinding'), 'fout'); return; }
     spelerSeizoenen.push(...(data||[]));
   }
 
@@ -4217,7 +4273,7 @@ async function bevestigVerwijderSeizoen(){
   const { error } = await db.from('seizoenen').delete().eq('id', id);
   if(error){
     console.error('Fout bij verwijderen seizoen:', error.message||error, error);
-    showToast('Verwijderen mislukt: '+vertaalFoutmelding(error), 'fout');
+    showToast('Verwijderen mislukt: '+(error.message||'controleer je rechten'), 'fout');
     return; // de lokale lijst NIET bijwerken, want de database-verwijdering is niet gelukt
   }
   seizoenen.splice(seizoenen.indexOf(s),1);
@@ -4329,6 +4385,36 @@ function removeLogo(){
   toonLogoInUI();
   document.getElementById('lf').value='';
   syncInstellingenNaarDatabase();
+  sluitLogoMenu();
+}
+
+let logoMenuOpen = false;
+function klikOpLogo(){
+  if(!clubLogo){
+    // Nog geen logo: gewoon direct de uploader openen, niets te kiezen
+    document.getElementById('lf').click();
+    return;
+  }
+  if(!isAdmin()){
+    // Wel een logo, maar geen rechten om te wijzigen: niets doen
+    return;
+  }
+  logoMenuOpen = true;
+  draw();
+}
+function sluitLogoMenu(){ logoMenuOpen=false; draw(); }
+function renderLogoMenu(){
+  if(!logoMenuOpen) return '';
+  return `<div onclick="if(event.target===this)sluitLogoMenu()" style="position:fixed;inset:0;background:rgba(15,23,41,0.4);z-index:200;display:flex;align-items:center;justify-content:center;padding:1rem">
+    <div style="background:#fff;border-radius:16px;padding:.5rem;max-width:260px;width:100%;box-shadow:0 20px 50px rgba(0,0,0,0.3)">
+      <button onclick="sluitLogoMenu();document.getElementById('lf').click()" style="width:100%;text-align:left;padding:11px 14px;border-radius:10px;border:none;background:none;cursor:pointer;font-family:inherit;font-size:13px;display:flex;align-items:center;gap:10px" onmouseover="this.style.background='var(--bg)'" onmouseout="this.style.background='none'">
+        <i class="ti ti-upload" style="font-size:15px;color:var(--fcb-groen)"></i> Ander logo uploaden
+      </button>
+      <button onclick="removeLogo()" style="width:100%;text-align:left;padding:11px 14px;border-radius:10px;border:none;background:none;cursor:pointer;font-family:inherit;font-size:13px;color:#dc2626;display:flex;align-items:center;gap:10px" onmouseover="this.style.background='#fef2f2'" onmouseout="this.style.background='none'">
+        <i class="ti ti-trash" style="font-size:15px"></i> Logo verwijderen
+      </button>
+    </div>
+  </div>`;
 }
 
 
@@ -4344,7 +4430,7 @@ let trainingsFilter = 'alle'; // 'alle' | maand string
 let activeTrainingId = null;
 let toonAlleToekomst = false;
 let activeSpelerTrainingId = null;
-let trainingMenuOpen = {aanwezigheid: true, voorbereiding: false};
+let trainingMenuOpen = {aanwezigheid: false, voorbereiding: false};
 let oefeningen = {}; // per trainingId: [{id, naam, veld, materiaal, teams, items:[]}]
 let toonNieuweOefening = null;
 let activeOefeningId = null; // welke oefening is open op het veld
@@ -4832,6 +4918,13 @@ function renderOefeningItemsStatisch(items){
     } else if(item.type==='klein_doel'||item.type==='groot_doel'){
       const dw=item.type==='klein_doel'?18:28, dh=item.type==='klein_doel'?12:18;
       return `<path d="M${item.x-dw/2} ${item.y-dh/2} L${item.x-dw/2} ${item.y+dh/2} M${item.x-dw/2} ${item.y-dh/2} L${item.x+dw/2} ${item.y-dh/2} M${item.x+dw/2} ${item.y-dh/2} L${item.x+dw/2} ${item.y+dh/2}" fill="none" stroke="white" stroke-width="2" stroke-linecap="square"/>`;
+    } else if(item.type==='pop'){
+      // Statische tegenstander-figuur: hoofd + lichaam + beentjes, in de gekozen kleur (standaard rood)
+      const kl = item.kleur||'#facc15';
+      return `<g>
+        <circle cx="${item.x}" cy="${item.y-6}" r="3" fill="${kl}"/>
+        <path d="M${item.x} ${item.y-3} L${item.x} ${item.y+3} M${item.x-4} ${item.y} L${item.x+4} ${item.y} M${item.x} ${item.y+3} L${item.x-3} ${item.y+7} M${item.x} ${item.y+3} L${item.x+3} ${item.y+7}" stroke="${kl}" stroke-width="1.8" fill="none" stroke-linecap="round"/>
+      </g>`;
     }
     return '';
   }).join('');
@@ -5021,6 +5114,12 @@ function renderVoorbereidingInhoud(trainingId){
           <line x1="${item.x-dw/2+21}" y1="${item.y-dh/2}" x2="${item.x-dw/2+21}" y2="${item.y+dh/2}" stroke="rgba(255,255,255,0.5)" stroke-width="0.8"/>
           <line x1="${item.x-dw/2}" y1="${item.y-dh/6}" x2="${item.x+dw/2}" y2="${item.y-dh/6}" stroke="rgba(255,255,255,0.5)" stroke-width="0.8"/>
           <line x1="${item.x-dw/2}" y1="${item.y+dh/6}" x2="${item.x+dw/2}" y2="${item.y+dh/6}" stroke="rgba(255,255,255,0.5)" stroke-width="0.8"/>
+        </g>`;
+      } else if(item.type==='pop'){
+        const kl = item.kleur||'#facc15';
+        return `<g${bewerkModus?` style="cursor:pointer" onclick="verwijderItem(${trainingId},${oef.id},${idx})" title="Klik om te verwijderen (tegenstander)"`:''}>
+          <circle cx="${item.x}" cy="${item.y-6}" r="3" fill="${kl}"/>
+          <path d="M${item.x} ${item.y-3} L${item.x} ${item.y+3} M${item.x-4} ${item.y} L${item.x+4} ${item.y} M${item.x} ${item.y+3} L${item.x-3} ${item.y+7} M${item.x} ${item.y+3} L${item.x+3} ${item.y+7}" stroke="${kl}" stroke-width="1.8" fill="none" stroke-linecap="round"/>
         </g>`;
       }
       return '';
@@ -5348,6 +5447,12 @@ function renderNieuweOefeningForm(trainingId, aanwezigen){
         <line x1="${item.x-dw/2}" y1="${item.y-dh/6}" x2="${item.x+dw/2}" y2="${item.y-dh/6}" stroke="rgba(255,255,255,0.5)" stroke-width="0.8"/>
         <line x1="${item.x-dw/2}" y1="${item.y+dh/6}" x2="${item.x+dw/2}" y2="${item.y+dh/6}" stroke="rgba(255,255,255,0.5)" stroke-width="0.8"/>
       </g>`;
+    } else if(item.type==='pop'){
+      const kl = item.kleur||'#facc15';
+      return `<g style="cursor:pointer" onclick="verwijderNieuwItem(${idx})" title="Verwijder (tegenstander)">
+        <circle cx="${item.x}" cy="${item.y-6}" r="3" fill="${kl}"/>
+        <path d="M${item.x} ${item.y-3} L${item.x} ${item.y+3} M${item.x-4} ${item.y} L${item.x+4} ${item.y} M${item.x} ${item.y+3} L${item.x-3} ${item.y+7} M${item.x} ${item.y+3} L${item.x+3} ${item.y+7}" stroke="${kl}" stroke-width="1.8" fill="none" stroke-linecap="round"/>
+      </g>`;
     } else if(item.type==='pijl'||item.type==='pijl_streep'){
       const ex=item.ex||item.x+40, ey=item.ey||item.y-20;
       const cx=item.cx!==undefined?item.cx:(item.x+ex)/2;
@@ -5399,6 +5504,19 @@ function renderNieuweOefeningForm(trainingId, aanwezigen){
       </button>`;
     });
   });
+
+  const popActief = actiefItem&&actiefItem.type==='pop';
+  zijItems += `<div class="sec-lbl" style="margin-top:6px">Tegenstander</div>
+    <button onclick="plaatsNieuwItem('pop',false,'#facc15')"
+      style="display:flex;align-items:center;gap:6px;padding:4px 8px;border-radius:var(--radius);width:100%;margin-bottom:3px;
+        border:1.5px solid ${popActief?'#ca8a04':'var(--border)'};background:${popActief?'#facc1522':'var(--white)'};
+        cursor:pointer;font-family:inherit;font-size:11px;color:var(--text)">
+      <svg width="20" height="20" viewBox="0 0 20 20">
+        <circle cx="10" cy="6" r="3" fill="#facc15"/>
+        <path d="M10 9 L10 15 M6 12 L14 12 M10 15 L7 19 M10 15 L13 19" stroke="#facc15" stroke-width="1.8" fill="none" stroke-linecap="round"/>
+      </svg>
+      Tegenstander (pop)${popActief?' ✓':''}
+    </button>`;
 
   zijItems += '<div class="sec-lbl" style="margin-top:6px">Doelen</div>';
   [{type:'klein_doel',label:'Klein doel',dw:18,dh:12},{type:'groot_doel',label:'Groot doel',dw:28,dh:18}].forEach(d => {
